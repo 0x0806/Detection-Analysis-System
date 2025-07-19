@@ -1,60 +1,11 @@
 
-# Core Computer Vision and Image Processing - Fixed compatibility
-opencv-python-headless==4.8.1.78
+opencv-python==4.8.1.78
+ultralytics==8.0.196
+torch==2.1.0
+torchvision==0.16.0
 numpy==1.24.3
-scipy==1.11.4
-scikit-image==0.21.0
-imageio==2.31.1
-Pillow==10.0.0
-
-# Machine Learning and Data Science
-scikit-learn==1.3.0
-pandas==2.0.3
-matplotlib==3.7.2
-seaborn==0.12.2
-joblib==1.3.1
-
-# Audio Processing and Signal Analysis - Simplified for compatibility
-soundfile==0.12.1
-librosa==0.10.1
-
-# System Monitoring and Performance
-psutil==5.9.5
-
-# Networking and Web Interface - Fixed Flask compatibility
-Flask==2.2.5
-requests==2.31.0
-urllib3==2.0.4
-websockets==11.0.3
-flask-socketio==5.3.5
-gunicorn==21.2.0
-
-# Real-time Communication
-python-socketio==5.8.0
-websocket-client==1.6.1
-
-# Configuration and Utilities
-PyYAML==6.0.1
-toml==0.10.2
-
-# Date and Time Handling
-python-dateutil==2.8.2
-pytz==2023.3
-
-# Statistical Analysis and Advanced Math
-statsmodels==0.14.0
-sympy==1.12
-
-# Advanced Analytics - Compatible versions
-dash==2.12.1
-dash-bootstrap-components==1.4.1
-
-# Security and Encryption
-cryptography==41.0.3
-bcrypt==4.0.1
-passlib==1.7.4
-
-# Essential utilities only
-tqdm==4.65.0
-colorama==0.4.6
-click==8.1.6
+Pillow>=8.3.2
+PyYAML>=5.3.1
+requests>=2.23.0
+matplotlib>=3.2.2
+seaborn>=0.11.0
