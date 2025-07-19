@@ -6,8 +6,8 @@ import os
 from datetime import datetime
 import threading
 import time
-import random
-import colorsys
+import math
+from collections import deque, defaultdict
 
 # Initialize database
 def init_db():
@@ -23,898 +23,770 @@ def init_db():
             bbox_y INTEGER,
             bbox_w INTEGER,
             bbox_h INTEGER,
-            predicted_color TEXT,
-            predicted_age TEXT,
-            material TEXT,
-            condition_score REAL
+            track_id INTEGER,
+            is_locked BOOLEAN DEFAULT 0,
+            track_duration REAL DEFAULT 0,
+            velocity_x REAL DEFAULT 0,
+            velocity_y REAL DEFAULT 0
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS object_tracks (
+            track_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            object_class TEXT,
+            first_seen DATETIME,
+            last_seen DATETIME,
+            total_detections INTEGER DEFAULT 1,
+            avg_confidence REAL,
+            track_status TEXT DEFAULT 'active',
+            is_locked BOOLEAN DEFAULT 0,
+            lock_reason TEXT
         )
     ''')
     conn.commit()
     conn.close()
 
-# Comprehensive object database with 10,000+ objects
-def get_comprehensive_object_database():
-    objects = [
-        # Original COCO classes
-        "person", "bicycle", "car", "motorbike", "aeroplane", "bus", "train", "truck",
-        "boat", "traffic light", "fire hydrant", "stop sign", "parking meter", "bench",
-        "bird", "cat", "dog", "horse", "sheep", "cow", "elephant", "bear", "zebra",
-        "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
-        "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove",
-        "skateboard", "surfboard", "tennis racket", "bottle", "wine glass", "cup",
-        "fork", "knife", "spoon", "bowl", "banana", "apple", "sandwich", "orange",
-        "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "sofa",
-        "pottedplant", "bed", "diningtable", "toilet", "tvmonitor", "laptop", "mouse",
-        "remote", "keyboard", "cell phone", "microwave", "oven", "toaster", "sink",
-        "refrigerator", "book", "clock", "vase", "scissors", "teddy bear", "hair drier",
-        "toothbrush",
+class EnhancedObjectTracker:
+    def __init__(self, max_disappeared=45, max_distance=120):
+        self.next_track_id = 1
+        self.tracked_objects = {}
+        self.disappeared = {}
+        self.max_disappeared = max_disappeared
+        self.max_distance = max_distance
+        self.locked_objects = set()
+        self.track_history = defaultdict(lambda: deque(maxlen=50))
+        self.velocities = {}
+        self.confidence_history = defaultdict(lambda: deque(maxlen=10))
+        self.size_history = defaultdict(lambda: deque(maxlen=10))
         
-        # Vehicles (500+ items)
-        "ambulance", "fire truck", "police car", "taxi", "limousine", "van", "pickup truck",
-        "semi truck", "dump truck", "garbage truck", "tow truck", "cement mixer", "crane",
-        "bulldozer", "excavator", "forklift", "go-kart", "scooter", "motorcycle", "moped",
-        "atv", "snowmobile", "jet ski", "yacht", "sailboat", "canoe", "kayak", "raft",
-        "submarine", "helicopter", "fighter jet", "cargo plane", "seaplane", "glider",
-        "hot air balloon", "rocket", "space shuttle", "satellite", "drone", "tank",
-        "armored vehicle", "hovercraft", "segway", "unicycle", "tricycle", "wagon",
-        "shopping cart", "wheelchair", "baby stroller", "rickshaw", "sled", "toboggan",
-        
-        # Animals (1000+ items)
-        "lion", "tiger", "leopard", "cheetah", "jaguar", "panther", "lynx", "bobcat",
-        "wolf", "fox", "coyote", "jackal", "hyena", "bear", "polar bear", "grizzly bear",
-        "panda", "koala", "kangaroo", "wallaby", "opossum", "raccoon", "skunk", "badger",
-        "otter", "beaver", "porcupine", "hedgehog", "armadillo", "sloth", "anteater",
-        "aardvark", "elephant", "rhinoceros", "hippopotamus", "giraffe", "zebra", "antelope",
-        "gazelle", "deer", "elk", "moose", "caribou", "bison", "buffalo", "yak", "ox",
-        "bull", "cow", "calf", "goat", "sheep", "lamb", "pig", "boar", "horse", "pony",
-        "donkey", "mule", "llama", "alpaca", "camel", "dromedary", "monkey", "ape",
-        "chimpanzee", "gorilla", "orangutan", "baboon", "lemur", "bat", "whale", "dolphin",
-        "shark", "ray", "octopus", "squid", "jellyfish", "crab", "lobster", "shrimp",
-        "starfish", "seahorse", "turtle", "tortoise", "snake", "lizard", "iguana",
-        "chameleon", "gecko", "crocodile", "alligator", "frog", "toad", "salamander",
-        "eagle", "hawk", "falcon", "owl", "vulture", "peacock", "swan", "duck", "goose",
-        "turkey", "chicken", "rooster", "hen", "penguin", "flamingo", "pelican", "heron",
-        "crane", "stork", "ibis", "hummingbird", "woodpecker", "parrot", "toucan", "robin",
-        "sparrow", "finch", "cardinal", "bluejay", "crow", "raven", "magpie", "seagull",
-        "albatross", "ostrich", "emu", "cassowary", "kiwi", "butterfly", "moth", "bee",
-        "wasp", "ant", "beetle", "spider", "scorpion", "centipede", "millipede", "snail",
-        "slug", "worm", "caterpillar", "grasshopper", "cricket", "dragonfly", "fly",
-        "mosquito", "ladybug", "praying mantis", "cockroach", "termite", "tick", "flea",
-        
-        # Food items (1500+ items)
-        "hamburger", "cheeseburger", "hot dog", "bratwurst", "sausage", "bacon", "ham",
-        "pepperoni", "salami", "turkey", "chicken", "beef", "pork", "lamb", "fish",
-        "salmon", "tuna", "cod", "shrimp", "lobster", "crab", "oyster", "clam", "mussel",
-        "steak", "ribs", "pork chop", "chicken breast", "drumstick", "wing", "nugget",
-        "meatball", "meatloaf", "pasta", "spaghetti", "linguine", "fettuccine", "ravioli",
-        "lasagna", "pizza", "calzone", "stromboli", "quesadilla", "burrito", "taco",
-        "enchilada", "nacho", "chip", "pretzel", "popcorn", "peanut", "cashew", "almond",
-        "walnut", "pecan", "pistachio", "hazelnut", "macadamia", "sunflower seed",
-        "pumpkin seed", "raisin", "date", "fig", "prune", "apple", "pear", "peach",
-        "plum", "apricot", "nectarine", "cherry", "grape", "strawberry", "blueberry",
-        "raspberry", "blackberry", "cranberry", "orange", "lemon", "lime", "grapefruit",
-        "tangerine", "mandarin", "banana", "pineapple", "mango", "papaya", "kiwi",
-        "coconut", "avocado", "tomato", "cucumber", "lettuce", "spinach", "kale", "arugula",
-        "cabbage", "broccoli", "cauliflower", "brussels sprouts", "asparagus", "artichoke",
-        "celery", "onion", "garlic", "shallot", "leek", "scallion", "potato", "sweet potato",
-        "carrot", "beet", "radish", "turnip", "parsnip", "bell pepper", "jalapeno",
-        "habanero", "chili pepper", "corn", "pea", "bean", "lentil", "chickpea", "quinoa",
-        "rice", "wheat", "oat", "barley", "rye", "bread", "roll", "bagel", "croissant",
-        "muffin", "donut", "cake", "pie", "tart", "cookie", "biscuit", "cracker", "wafer",
-        "ice cream", "sorbet", "yogurt", "cheese", "butter", "milk", "cream", "egg",
-        "honey", "syrup", "jam", "jelly", "peanut butter", "nutella", "salad", "soup",
-        "stew", "chili", "curry", "noodle", "dumpling", "sushi", "tempura", "ramen",
-        
-        # Electronics (800+ items)
-        "smartphone", "tablet", "smartwatch", "fitness tracker", "earbuds", "headphones",
-        "speaker", "bluetooth speaker", "radio", "walkman", "mp3 player", "cd player",
-        "record player", "turntable", "amplifier", "mixer", "microphone", "webcam",
-        "camera", "dslr camera", "action camera", "security camera", "doorbell camera",
-        "drone camera", "projector", "monitor", "display", "television", "smart tv",
-        "streaming device", "gaming console", "controller", "joystick", "gamepad",
-        "virtual reality headset", "ar glasses", "3d printer", "scanner", "router",
-        "modem", "switch", "hub", "access point", "repeater", "hard drive", "ssd",
-        "usb drive", "memory card", "battery", "charger", "power bank", "cable",
-        "adapter", "converter", "surge protector", "extension cord", "smart plug",
-        "smart bulb", "smart lock", "smart thermostat", "smart doorbell", "smart alarm",
-        "alexa", "google home", "smart hub", "sensor", "detector", "garage opener",
-        
-        # Clothing (1000+ items)
-        "shirt", "t-shirt", "polo shirt", "dress shirt", "button-up", "blouse", "tank top",
-        "camisole", "crop top", "halter top", "tube top", "sweater", "pullover", "cardigan",
-        "hoodie", "sweatshirt", "jacket", "blazer", "sport coat", "suit jacket", "coat",
-        "overcoat", "trench coat", "pea coat", "parka", "windbreaker", "rain jacket",
-        "vest", "waistcoat", "poncho", "cape", "cloak", "dress", "sundress", "cocktail dress",
-        "evening gown", "wedding dress", "skirt", "mini skirt", "midi skirt", "maxi skirt",
-        "pencil skirt", "a-line skirt", "pleated skirt", "pants", "trousers", "jeans",
-        "skinny jeans", "bootcut jeans", "straight leg jeans", "wide leg jeans", "cargo pants",
-        "khakis", "chinos", "dress pants", "sweatpants", "joggers", "leggings", "tights",
-        "shorts", "bermuda shorts", "board shorts", "swim trunks", "bikini", "one-piece",
-        "underwear", "boxers", "briefs", "panties", "bra", "sports bra", "camisole",
-        "slip", "nightgown", "pajamas", "robe", "bathrobe", "socks", "stockings", "pantyhose",
-        "shoes", "sneakers", "running shoes", "basketball shoes", "tennis shoes", "boots",
-        "ankle boots", "knee boots", "cowboy boots", "hiking boots", "work boots",
-        "dress shoes", "loafers", "oxfords", "heels", "pumps", "stilettos", "flats",
-        "sandals", "flip-flops", "slippers", "clogs", "hat", "cap", "baseball cap",
-        "beanie", "beret", "fedora", "cowboy hat", "sun hat", "winter hat", "helmet",
-        "scarf", "bandana", "headband", "hair tie", "gloves", "mittens", "belt",
-        "suspenders", "tie", "bow tie", "ascot", "pocket square", "cufflinks", "watch",
-        "bracelet", "necklace", "earrings", "ring", "brooch", "pin", "sunglasses",
-        "reading glasses", "contact lenses", "purse", "handbag", "clutch", "tote bag",
-        "messenger bag", "laptop bag", "gym bag", "duffel bag", "suitcase", "backpack",
-        "fanny pack", "wallet", "coin purse", "makeup bag", "jewelry box",
-        
-        # Tools & Hardware (800+ items)
-        "hammer", "screwdriver", "wrench", "pliers", "drill", "saw", "circular saw",
-        "jigsaw", "reciprocating saw", "miter saw", "table saw", "chainsaw", "chisel",
-        "file", "rasp", "sandpaper", "level", "measuring tape", "ruler", "square",
-        "protractor", "compass", "caliper", "micrometer", "vise", "clamp", "socket",
-        "ratchet", "allen wrench", "torx wrench", "phillips screwdriver", "flathead screwdriver",
-        "impact driver", "nail gun", "staple gun", "rivet gun", "soldering iron",
-        "multimeter", "wire stripper", "crimper", "voltage tester", "stud finder",
-        "laser level", "chalk line", "utility knife", "box cutter", "scissors", "tin snips",
-        "bolt cutter", "pipe cutter", "tubing cutter", "hacksaw", "coping saw", "hand saw",
-        "back saw", "dovetail saw", "fret saw", "keyhole saw", "pruning saw", "bow saw",
-        "crosscut saw", "rip saw", "tenon saw", "plane", "block plane", "jack plane",
-        "smoothing plane", "jointer plane", "router", "router bit", "bit set", "hole saw",
-        "spade bit", "twist bit", "masonry bit", "forstner bit", "paddle bit", "countersink",
-        "counterbore", "reamer", "tap", "die", "thread chaser", "tap handle", "die handle",
-        "punch", "center punch", "drift punch", "pin punch", "starting punch", "nail set",
-        "awl", "scribe", "marking gauge", "mortise gauge", "cutting gauge", "divider",
-        "trammel", "burnisher", "card scraper", "cabinet scraper", "spokeshave", "drawknife",
-        
-        # Home & Garden (1200+ items)
-        "sofa", "couch", "loveseat", "sectional", "recliner", "armchair", "ottoman",
-        "coffee table", "end table", "side table", "console table", "dining table",
-        "kitchen table", "desk", "writing desk", "computer desk", "standing desk",
-        "bookshelf", "bookcase", "entertainment center", "tv stand", "dresser", "chest",
-        "wardrobe", "armoire", "nightstand", "bed", "twin bed", "full bed", "queen bed",
-        "king bed", "bunk bed", "loft bed", "daybed", "futon", "sleeper sofa", "mattress",
-        "box spring", "bed frame", "headboard", "footboard", "pillow", "pillowcase",
-        "sheet", "fitted sheet", "flat sheet", "comforter", "duvet", "duvet cover",
-        "blanket", "throw", "bedspread", "quilt", "afghan", "lamp", "table lamp",
-        "floor lamp", "desk lamp", "pendant light", "chandelier", "ceiling fan",
-        "track lighting", "recessed light", "wall sconce", "string lights", "candle",
-        "candle holder", "lantern", "flashlight", "mirror", "picture frame", "artwork",
-        "painting", "poster", "photograph", "wall decor", "wall clock", "mantel clock",
-        "alarm clock", "digital clock", "grandfather clock", "cuckoo clock", "rug",
-        "carpet", "area rug", "runner", "doormat", "curtain", "drape", "blind",
-        "shade", "valance", "cornice", "rod", "finial", "tieback", "holdback",
-        "cushion", "throw pillow", "seat cushion", "bench cushion", "chair pad",
-        "table runner", "placemat", "napkin", "tablecloth", "centerpiece", "vase",
-        "flower pot", "planter", "hanging basket", "garden hose", "sprinkler", "watering can",
-        "shovel", "spade", "rake", "hoe", "trowel", "pruning shears", "hedge trimmer",
-        "lawn mower", "leaf blower", "edger", "trimmer", "fertilizer spreader",
-        "wheelbarrow", "garden cart", "compost bin", "rain barrel", "bird bath",
-        "bird feeder", "bird house", "wind chime", "garden statue", "fountain",
-        "pond", "gazebo", "pergola", "arbor", "trellis", "fence", "gate", "mailbox",
-        
-        # Sports & Recreation (600+ items)
-        "basketball", "football", "soccer ball", "volleyball", "tennis ball", "golf ball",
-        "baseball", "softball", "ping pong ball", "pool ball", "bowling ball", "medicine ball",
-        "exercise ball", "stability ball", "foam roller", "yoga mat", "yoga block",
-        "resistance band", "dumbbell", "barbell", "weight plate", "kettlebell", "pull-up bar",
-        "bench press", "squat rack", "power rack", "smith machine", "cable machine",
-        "rowing machine", "elliptical", "treadmill", "stationary bike", "spin bike",
-        "stair climber", "jump rope", "hula hoop", "frisbee", "boomerang", "kite",
-        "yo-yo", "skateboard", "longboard", "roller skates", "inline skates", "scooter",
-        "bicycle", "mountain bike", "road bike", "bmx bike", "electric bike", "tricycle",
-        "unicycle", "helmet", "knee pad", "elbow pad", "wrist guard", "shin guard",
-        "shoulder pad", "chest protector", "face mask", "mouthguard", "goggles",
-        "swimming cap", "swimsuit", "wetsuit", "life jacket", "floatie", "pool noodle",
-        "diving board", "pool ladder", "pool cover", "pool filter", "pool heater",
-        "hot tub", "spa", "sauna", "steam room", "tennis racket", "badminton racket",
-        "squash racket", "ping pong paddle", "golf club", "driver", "iron", "putter",
-        "wedge", "hybrid", "fairway wood", "golf bag", "golf cart", "golf tee",
-        "baseball bat", "softball bat", "hockey stick", "field hockey stick", "lacrosse stick",
-        "cricket bat", "bowling pin", "dart", "dartboard", "pool cue", "pool table",
-        "air hockey table", "foosball table", "arcade game", "pinball machine",
-        "slot machine", "poker chips", "playing cards", "dice", "board game",
-        "puzzle", "crossword", "sudoku", "chess set", "checkers", "backgammon",
-        "monopoly", "scrabble", "trivial pursuit", "risk", "settlers of catan",
-        
-        # Musical Instruments (400+ items)
-        "piano", "keyboard", "synthesizer", "organ", "harpsichord", "accordion", "harmonica",
-        "guitar", "acoustic guitar", "electric guitar", "bass guitar", "ukulele", "banjo",
-        "mandolin", "lute", "harp", "violin", "viola", "cello", "double bass", "fiddle",
-        "trumpet", "cornet", "flugelhorn", "french horn", "tuba", "trombone", "euphonium",
-        "saxophone", "clarinet", "oboe", "bassoon", "flute", "piccolo", "recorder",
-        "pan flute", "harmonica", "melodica", "bagpipes", "didgeridoo", "kazoo", "ocarina",
-        "drums", "drum set", "snare drum", "bass drum", "tom tom", "floor tom", "cymbal",
-        "hi-hat", "crash cymbal", "ride cymbal", "splash cymbal", "tambourine", "triangle",
-        "cowbell", "wood block", "claves", "maracas", "shaker", "castanets", "bongos",
-        "congas", "djembe", "timpani", "xylophone", "marimba", "vibraphone", "glockenspiel",
-        "chimes", "bells", "carillon", "music stand", "metronome", "tuner", "capo",
-        "guitar pick", "guitar strap", "amplifier", "speaker", "microphone", "audio interface",
-        "mixer", "equalizer", "effects pedal", "distortion", "reverb", "delay", "chorus",
-        "flanger", "phaser", "wah pedal", "volume pedal", "looper", "sampler", "drum machine",
-        
-        # Office Supplies (300+ items)
-        "pen", "pencil", "marker", "highlighter", "crayon", "colored pencil", "charcoal",
-        "eraser", "sharpener", "ruler", "protractor", "compass", "calculator", "stapler",
-        "staple remover", "hole punch", "paper clip", "binder clip", "rubber band",
-        "push pin", "thumb tack", "paperweight", "letter opener", "tape dispenser",
-        "tape", "glue stick", "liquid glue", "rubber cement", "correction fluid",
-        "correction tape", "sticky note", "index card", "business card", "envelope",
-        "stamp", "stamp pad", "label", "sticker", "folder", "file folder", "hanging folder",
-        "binder", "ring binder", "portfolio", "clipboard", "notebook", "notepad",
-        "legal pad", "spiral notebook", "composition book", "journal", "diary", "planner",
-        "calendar", "desk pad", "mouse pad", "keyboard", "mouse", "monitor", "printer",
-        "scanner", "copier", "fax machine", "shredder", "laminator", "binding machine",
-        "desk", "chair", "filing cabinet", "bookshelf", "waste basket", "recycling bin",
-        "desk organizer", "pencil holder", "paper tray", "in-box", "out-box", "magazine rack",
-        
-        # Kitchen Appliances (400+ items)
-        "refrigerator", "freezer", "ice maker", "water dispenser", "wine cooler", "beer fridge",
-        "stove", "oven", "convection oven", "microwave", "toaster oven", "toaster", "griddle",
-        "grill", "barbecue", "smoker", "fryer", "air fryer", "pressure cooker", "slow cooker",
-        "rice cooker", "steamer", "food processor", "blender", "immersion blender", "juicer",
-        "coffee maker", "espresso machine", "french press", "pour over", "drip coffee",
-        "coffee grinder", "tea kettle", "electric kettle", "hot water dispenser", "soda maker",
-        "ice cream maker", "bread maker", "pasta maker", "stand mixer", "hand mixer",
-        "food scale", "kitchen scale", "measuring cups", "measuring spoons", "mixing bowl",
-        "colander", "strainer", "sieve", "funnel", "ladle", "spatula", "whisk", "tongs",
-        "can opener", "bottle opener", "corkscrew", "cutting board", "knife block",
-        "chef knife", "paring knife", "bread knife", "carving knife", "cleaver", "sharpener",
-        "peeler", "grater", "zester", "mandoline", "food mill", "ricer", "garlic press",
-        "pizza cutter", "cookie cutter", "rolling pin", "pastry brush", "basting brush",
-        
-        # Art Supplies (300+ items)
-        "paintbrush", "paint", "acrylic paint", "oil paint", "watercolor", "tempera paint",
-        "spray paint", "paint pen", "paint marker", "canvas", "canvas board", "paper",
-        "drawing paper", "watercolor paper", "sketch pad", "newsprint", "construction paper",
-        "cardstock", "foam board", "poster board", "mat board", "mounting board", "easel",
-        "palette", "palette knife", "paint tube", "paint jar", "paint can", "thinner",
-        "turpentine", "medium", "varnish", "fixative", "charcoal", "pastels", "chalk",
-        "conte crayon", "graphite", "pencil set", "eraser", "kneaded eraser", "blending stump",
-        "tortillon", "ruler", "t-square", "triangle", "curve ruler", "protractor", "compass",
-        "divider", "proportional divider", "caliper", "magnifying glass", "light box",
-        "projector", "camera", "tripod", "reflector", "diffuser", "backdrop", "studio light",
-        "flash", "lens", "filter", "film", "darkroom", "enlarger", "developer", "fixer",
-        "stop bath", "photo paper", "negative", "slide", "contact sheet", "print", "frame",
-        "mat", "glass", "backing", "hanging wire", "sawtooth hanger", "wall anchor",
-        
-        # Books & Media (500+ items)
-        "novel", "fiction", "non-fiction", "biography", "autobiography", "memoir", "history",
-        "science", "mathematics", "physics", "chemistry", "biology", "medicine", "psychology",
-        "philosophy", "religion", "spirituality", "self-help", "business", "economics",
-        "politics", "law", "education", "reference", "dictionary", "encyclopedia", "atlas",
-        "textbook", "workbook", "manual", "guide", "cookbook", "recipe book", "art book",
-        "coffee table book", "children's book", "picture book", "young adult", "fantasy",
-        "science fiction", "mystery", "thriller", "romance", "horror", "western", "poetry",
-        "drama", "comedy", "tragedy", "anthology", "collection", "series", "magazine",
-        "newspaper", "journal", "periodical", "comic book", "graphic novel", "manga",
-        "anime", "dvd", "blu-ray", "vhs", "cd", "vinyl record", "cassette tape", "mp3",
-        "audiobook", "podcast", "streaming", "digital download", "e-book", "kindle",
-        "tablet", "e-reader", "bookmark", "book light", "reading glasses", "book stand",
-        "bookend", "library card", "library", "bookstore", "publisher", "author", "editor",
-        
-        # Personal Care (400+ items)
-        "toothbrush", "toothpaste", "dental floss", "mouthwash", "teeth whitening", "denture cream",
-        "retainer", "night guard", "soap", "body wash", "shampoo", "conditioner", "hair mask",
-        "leave-in conditioner", "styling gel", "mousse", "hairspray", "hair oil", "dry shampoo",
-        "hair brush", "comb", "hair dryer", "curling iron", "flat iron", "hot rollers",
-        "hair clips", "hair ties", "headband", "razor", "shaving cream", "aftershave",
-        "cologne", "perfume", "deodorant", "antiperspirant", "body lotion", "hand cream",
-        "foot cream", "face wash", "cleanser", "toner", "moisturizer", "serum", "eye cream",
-        "face mask", "exfoliator", "sunscreen", "foundation", "concealer", "powder", "blush",
-        "bronzer", "highlighter", "eyeshadow", "eyeliner", "mascara", "eyebrow pencil",
-        "lipstick", "lip gloss", "lip balm", "nail polish", "nail file", "nail clippers",
-        "cuticle pusher", "nail buffer", "nail art", "false nails", "nail glue", "acetone",
-        "cotton balls", "cotton swabs", "tissues", "toilet paper", "feminine products",
-        "contact solution", "eye drops", "reading glasses", "sunglasses", "contact lenses",
-        
-        # Toys & Games (600+ items)
-        "doll", "action figure", "stuffed animal", "teddy bear", "puppet", "marionette",
-        "toy car", "toy truck", "toy plane", "toy boat", "toy train", "train set", "race track",
-        "remote control car", "drone", "helicopter", "robot", "transformer", "lego", "blocks",
-        "building set", "erector set", "lincoln logs", "tinker toys", "k'nex", "magnetic tiles",
-        "puzzle", "jigsaw puzzle", "3d puzzle", "rubik's cube", "brain teaser", "word game",
-        "board game", "card game", "dice game", "trivia game", "party game", "video game",
-        "gaming console", "controller", "joystick", "gaming headset", "gaming chair",
-        "gaming keyboard", "gaming mouse", "ball", "playground ball", "beach ball", "bouncy ball",
-        "stress ball", "fidget spinner", "fidget cube", "slinky", "yo-yo", "kendama",
-        "pogo stick", "hula hoop", "jump rope", "sidewalk chalk", "bubbles", "bubble wand",
-        "kite", "frisbee", "boomerang", "water gun", "super soaker", "water balloon",
-        "slip and slide", "sprinkler", "pool toy", "floatie", "water wings", "goggles",
-        "sand toy", "bucket", "shovel", "sand castle", "sandbox", "swing set", "slide",
-        "see-saw", "merry-go-round", "jungle gym", "trampoline", "basketball hoop",
-        "soccer goal", "tennis net", "badminton net", "volleyball net", "hockey goal",
-        
-        # Medical Equipment (200+ items)
-        "thermometer", "blood pressure monitor", "stethoscope", "otoscope", "ophthalmoscope",
-        "reflex hammer", "tuning fork", "tongue depressor", "syringe", "needle", "bandage",
-        "gauze", "medical tape", "antiseptic", "alcohol", "hydrogen peroxide", "iodine",
-        "first aid kit", "emergency kit", "trauma kit", "defibrillator", "oxygen tank",
-        "nebulizer", "inhaler", "cpap machine", "wheelchair", "walker", "cane", "crutches",
-        "brace", "sling", "splint", "cast", "boot", "collar", "support", "compression sock",
-        "heating pad", "ice pack", "cold pack", "hot water bottle", "massage table",
-        "massage chair", "massage oil", "essential oil", "diffuser", "humidifier",
-        "air purifier", "uv sanitizer", "hand sanitizer", "disinfectant", "bleach",
-        "surgical mask", "n95 mask", "face shield", "gloves", "gown", "scrubs", "lab coat",
-        "hair net", "shoe cover", "safety glasses", "goggles", "hard hat", "earplugs",
-        "ear muffs", "respirator", "gas mask", "hazmat suit", "radiation detector",
-        
-        # Cleaning Supplies (200+ items)
-        "vacuum cleaner", "carpet cleaner", "steam cleaner", "pressure washer", "mop", "bucket",
-        "broom", "dustpan", "duster", "microfiber cloth", "sponge", "scrub brush", "toilet brush",
-        "bottle brush", "dish brush", "cleaning cloth", "paper towel", "napkin", "tissue",
-        "toilet paper", "detergent", "dish soap", "hand soap", "laundry soap", "fabric softener",
-        "bleach", "disinfectant", "all-purpose cleaner", "glass cleaner", "wood cleaner",
-        "furniture polish", "floor cleaner", "carpet cleaner", "upholstery cleaner",
-        "oven cleaner", "grill cleaner", "bathroom cleaner", "toilet cleaner", "tile cleaner",
-        "grout cleaner", "mold remover", "rust remover", "stain remover", "spot cleaner",
-        "degreaser", "deodorizer", "air freshener", "fabric freshener", "carpet freshener",
-        "garbage can", "trash bag", "recycling bin", "compost bin", "lint roller",
-        "iron", "ironing board", "steamer", "garment steamer", "dry cleaning", "laundromat",
-        "washing machine", "dryer", "clothesline", "clothespin", "hanger", "garment bag",
-        
-        # Garden Tools (150+ items)
-        "shovel", "spade", "rake", "hoe", "cultivator", "weeder", "trowel", "hand fork",
-        "pruning shears", "loppers", "hedge trimmer", "pole saw", "chainsaw", "ax", "hatchet",
-        "maul", "wedge", "sledgehammer", "pick", "mattock", "grub hoe", "dibber", "bulb planter",
-        "soil knife", "garden knife", "grafting knife", "budding knife", "harvest knife",
-        "sickle", "scythe", "grass shears", "edging shears", "topiary shears", "bypass pruners",
-        "anvil pruners", "ratchet pruners", "pole pruners", "branch saw", "bow saw",
-        "folding saw", "garden cart", "wheelbarrow", "wagon", "tarp", "bucket", "watering can",
-        "hose", "sprinkler", "soaker hose", "drip irrigation", "timer", "nozzle", "wand",
-        "sprayer", "pump sprayer", "backpack sprayer", "fertilizer spreader", "seed spreader",
-        "compost tumbler", "compost bin", "rain barrel", "rain gauge", "thermometer",
-        "moisture meter", "ph meter", "soil test kit", "plant stakes", "tomato cage",
-        "trellis", "arbor", "obelisk", "plant ties", "twist ties", "plant labels",
-        "garden markers", "row cover", "shade cloth", "greenhouse", "cold frame", "cloche",
-        
-        # Science Equipment (200+ items)
-        "microscope", "telescope", "binoculars", "magnifying glass", "ruler", "caliper",
-        "micrometer", "scale", "balance", "graduated cylinder", "beaker", "flask", "test tube",
-        "petri dish", "pipette", "burette", "funnel", "stirring rod", "thermometer",
-        "ph meter", "conductivity meter", "spectrometer", "centrifuge", "autoclave",
-        "incubator", "hot plate", "bunsen burner", "tripod", "ring stand", "clamp",
-        "wire gauze", "watch glass", "evaporating dish", "crucible", "mortar and pestle",
-        "spatula", "scoop", "tweezers", "forceps", "scissors", "scalpel", "probe",
-        "dissection kit", "slide", "cover slip", "stain", "preservative", "agar",
-        "culture medium", "antibiotic disc", "inoculating loop", "streak plate", "colony counter",
-        "gel electrophoresis", "pcr machine", "dna sequencer", "protein synthesizer",
-        "chromatography", "mass spectrometer", "x-ray machine", "ultrasound", "mri",
-        "ct scan", "pet scan", "ekg machine", "eeg machine", "emg machine", "spirometer",
-        "pulse oximeter", "blood glucose meter", "cholesterol meter", "pregnancy test",
-        "drug test", "covid test", "rapid test", "lab test", "blood test", "urine test",
-        
-        # Construction Materials (300+ items)
-        "lumber", "plywood", "osb", "mdf", "particle board", "hardboard", "drywall", "plaster",
-        "lath", "insulation", "vapor barrier", "house wrap", "roofing", "shingles", "tiles",
-        "metal roofing", "gutters", "downspouts", "flashing", "underlayment", "felt paper",
-        "tar paper", "siding", "vinyl siding", "aluminum siding", "fiber cement", "stucco",
-        "brick", "block", "stone", "concrete", "mortar", "grout", "caulk", "sealant",
-        "adhesive", "glue", "epoxy", "polyurethane", "silicone", "weatherstrip", "gasket",
-        "foam", "spray foam", "batt insulation", "blown insulation", "rigid insulation",
-        "radiant barrier", "windows", "doors", "garage doors", "sliding doors", "french doors",
-        "storm doors", "screen doors", "pet doors", "skylights", "solar tubes", "vents",
-        "exhaust fans", "range hoods", "bathroom fans", "whole house fans", "hvac",
-        "furnace", "boiler", "heat pump", "air conditioner", "ductwork", "registers",
-        "grilles", "dampers", "thermostats", "humidifiers", "dehumidifiers", "air cleaners",
-        "water heater", "tankless water heater", "solar water heater", "plumbing", "pipes",
-        "fittings", "valves", "faucets", "sinks", "toilets", "bathtubs", "showers",
-        "water softener", "water filter", "sump pump", "well pump", "septic system",
-        "electrical", "wire", "cable", "conduit", "junction box", "outlet", "switch",
-        "breaker", "fuse", "panel", "meter", "transformer", "generator", "solar panels",
-        "inverter", "battery", "charge controller", "lighting", "fixtures", "bulbs",
-        "led", "fluorescent", "incandescent", "halogen", "track lighting", "recessed lights",
-        "chandeliers", "ceiling fans", "landscape lighting", "security lighting", "motion sensors",
-        
-        # And many more categories with thousands of additional objects...
-        "smartphone case", "screen protector", "charging cable", "wireless charger", "power bank",
-        "bluetooth earbuds", "noise-canceling headphones", "gaming headset", "smart speaker",
-        "smart display", "smart doorbell", "security camera", "baby monitor", "fitness tracker",
-        "smartwatch", "virtual reality headset", "augmented reality glasses", "3d printer",
-        "laser engraver", "cnc machine", "soldering iron", "multimeter", "oscilloscope",
-        "function generator", "power supply", "bench vise", "drill press", "band saw",
-        "scroll saw", "router table", "planer", "jointer", "lathe", "grinder", "sander"
-    ]
-    
-    # Add materials and properties
-    materials = ["wood", "metal", "plastic", "glass", "ceramic", "fabric", "leather", "rubber", "stone", "concrete"]
-    colors = ["red", "blue", "green", "yellow", "orange", "purple", "pink", "brown", "black", "white", "gray", "silver", "gold"]
-    conditions = ["new", "excellent", "good", "fair", "poor", "vintage", "antique", "restored", "damaged"]
-    
-    return objects, materials, colors, conditions
+        # Enhanced tracking parameters
+        self.velocity_smoothing = 0.7
+        self.position_smoothing = 0.3
+        self.confidence_threshold = 0.3
+        self.stability_threshold = 5
 
-# Color detection function
-def detect_dominant_color(image_region):
-    """Detect the dominant color in an image region"""
-    if image_region.size == 0:
-        return "unknown"
-    
-    # Convert to RGB
-    rgb_region = cv2.cvtColor(image_region, cv2.COLOR_BGR2RGB)
-    
-    # Reshape to list of pixels
-    pixels = rgb_region.reshape(-1, 3)
-    
-    # Calculate mean color
-    mean_color = np.mean(pixels, axis=0)
-    
-    # Define color ranges
-    color_ranges = {
-        'red': ([150, 0, 0], [255, 100, 100]),
-        'green': ([0, 150, 0], [100, 255, 100]),
-        'blue': ([0, 0, 150], [100, 100, 255]),
-        'yellow': ([150, 150, 0], [255, 255, 100]),
-        'orange': ([200, 100, 0], [255, 200, 100]),
-        'purple': ([150, 0, 150], [255, 100, 255]),
-        'pink': ([200, 100, 150], [255, 200, 255]),
-        'brown': ([100, 50, 0], [150, 100, 50]),
-        'black': ([0, 0, 0], [50, 50, 50]),
-        'white': ([200, 200, 200], [255, 255, 255]),
-        'gray': ([100, 100, 100], [200, 200, 200])
-    }
-    
-    for color_name, (lower, upper) in color_ranges.items():
-        if all(lower[i] <= mean_color[i] <= upper[i] for i in range(3)):
-            return color_name
-    
-    return "multicolor"
+    def calculate_velocity(self, track_id, current_center):
+        """Calculate smoothed velocity for a tracked object"""
+        if track_id in self.track_history and len(self.track_history[track_id]) > 2:
+            history = list(self.track_history[track_id])
+            
+            # Use multiple points for better velocity estimation
+            if len(history) >= 3:
+                recent_points = history[-3:]
+                velocities = []
+                
+                for i in range(1, len(recent_points)):
+                    prev_center = recent_points[i-1]['center']
+                    curr_center = recent_points[i]['center']
+                    prev_time = recent_points[i-1]['timestamp']
+                    curr_time = recent_points[i]['timestamp']
+                    
+                    dt = curr_time - prev_time
+                    if dt > 0:
+                        vx = (curr_center[0] - prev_center[0]) / dt
+                        vy = (curr_center[1] - prev_center[1]) / dt
+                        velocities.append((vx, vy))
+                
+                if velocities:
+                    # Average the velocities for smoother result
+                    avg_vx = sum(v[0] for v in velocities) / len(velocities)
+                    avg_vy = sum(v[1] for v in velocities) / len(velocities)
+                    
+                    # Apply smoothing
+                    if track_id in self.velocities:
+                        prev_vx, prev_vy = self.velocities[track_id]
+                        avg_vx = self.velocity_smoothing * prev_vx + (1 - self.velocity_smoothing) * avg_vx
+                        avg_vy = self.velocity_smoothing * prev_vy + (1 - self.velocity_smoothing) * avg_vy
+                    
+                    return avg_vx, avg_vy
+        return 0.0, 0.0
 
-# Age estimation function
-def estimate_object_age(object_class, image_region):
-    """Estimate the age/condition of an object based on visual features"""
-    if image_region.size == 0:
-        return "unknown"
-    
-    # Convert to grayscale for texture analysis
-    gray = cv2.cvtColor(image_region, cv2.COLOR_BGR2GRAY)
-    
-    # Calculate texture features
-    contrast = np.std(gray)
-    brightness = np.mean(gray)
-    
-    # Age categories based on object type and visual features
-    if object_class in ["person"]:
-        if brightness > 180:
-            return "young"
-        elif brightness > 120:
-            return "adult"
-        else:
-            return "elderly"
-    elif object_class in ["car", "truck", "bus", "motorbike"]:
-        if contrast > 50:
-            return "new"
-        elif contrast > 30:
-            return "used"
-        else:
-            return "old"
-    elif object_class in ["book", "furniture", "clothing"]:
-        if contrast > 40:
-            return "new"
-        elif contrast > 25:
-            return "good condition"
-        else:
-            return "worn"
-    else:
-        # General estimation
-        if contrast > 45:
-            return "new/excellent"
-        elif contrast > 30:
-            return "good condition"
-        elif contrast > 15:
-            return "fair condition"
-        else:
-            return "poor/old"
+    def predict_position(self, track_id):
+        """Predict next position based on velocity"""
+        if track_id in self.tracked_objects and track_id in self.velocities:
+            current_center = self.tracked_objects[track_id]['center']
+            vx, vy = self.velocities[track_id]
+            
+            # Predict position 1 frame ahead
+            predicted_x = current_center[0] + vx * 0.033  # Assuming 30fps
+            predicted_y = current_center[1] + vy * 0.033
+            
+            return (predicted_x, predicted_y)
+        return None
 
-# Load YOLO model
-def load_yolo_model():
-    objects, materials, colors, conditions = get_comprehensive_object_database()
-    return objects[:80]  # Use first 80 for COCO compatibility
+    def calculate_detection_quality(self, detection):
+        """Calculate quality score for detection"""
+        confidence = detection['confidence']
+        bbox = detection['bbox']
+        area = bbox[2] * bbox[3]
+        aspect_ratio = bbox[2] / max(bbox[3], 1)
+        
+        # Quality factors
+        confidence_score = confidence
+        size_score = min(area / 10000.0, 1.0)  # Normalize area
+        aspect_score = 1.0 - abs(aspect_ratio - 0.7) / 2.0  # Prefer human-like ratios
+        
+        quality = (confidence_score * 0.5 + size_score * 0.3 + max(aspect_score, 0.2) * 0.2)
+        return min(quality, 1.0)
 
-class LiveObjectDetector:
-    def __init__(self):
-        self.objects, self.materials, self.colors, self.conditions = get_comprehensive_object_database()
-        self.class_names = self.objects[:80]  # COCO classes for detection
-        self.running = False
-        self.recent_detections = []
-        self.detection_stats = {
-            'total_detections': 0,
-            'method_counts': {},
-            'object_counts': {},
-            'simultaneous_max': 0
+    def update(self, detections):
+        """Enhanced update with prediction and quality filtering"""
+        # Filter low-quality detections
+        quality_detections = []
+        for detection in detections:
+            quality = self.calculate_detection_quality(detection)
+            if quality > self.confidence_threshold:
+                detection['quality'] = quality
+                quality_detections.append(detection)
+
+        if len(quality_detections) == 0:
+            # Mark all tracked objects as disappeared
+            for track_id in list(self.disappeared.keys()):
+                self.disappeared[track_id] += 1
+                if self.disappeared[track_id] > self.max_disappeared:
+                    self.remove_track(track_id)
+            return []
+
+        # If no existing tracked objects, register all detections
+        if len(self.tracked_objects) == 0:
+            for detection in quality_detections:
+                self.register_new_object(detection)
+        else:
+            # Enhanced distance calculation with prediction
+            track_ids = list(self.tracked_objects.keys())
+            detection_centers = []
+
+            for detection in quality_detections:
+                x, y, w, h = detection['bbox']
+                center = (x + w // 2, y + h // 2)
+                detection_centers.append(center)
+
+            # Create enhanced distance matrix
+            distance_matrix = np.zeros((len(track_ids), len(quality_detections)))
+            for i, track_id in enumerate(track_ids):
+                predicted_pos = self.predict_position(track_id)
+                track_center = predicted_pos if predicted_pos else self.tracked_objects[track_id]['center']
+                
+                for j, det_center in enumerate(detection_centers):
+                    # Euclidean distance with quality weighting
+                    base_distance = math.sqrt(
+                        (track_center[0] - det_center[0])**2 + 
+                        (track_center[1] - det_center[1])**2
+                    )
+                    
+                    # Weight by detection quality
+                    quality_weight = quality_detections[j]['quality']
+                    distance_matrix[i, j] = base_distance / max(quality_weight, 0.1)
+
+            # Hungarian algorithm approximation
+            rows = distance_matrix.min(axis=1).argsort()
+            cols = distance_matrix.argmin(axis=1)[rows]
+
+            used_row_indices = set()
+            used_col_indices = set()
+
+            # Update existing tracks
+            for (row, col) in zip(rows, cols):
+                if row in used_row_indices or col in used_col_indices:
+                    continue
+
+                if distance_matrix[row, col] <= self.max_distance:
+                    track_id = track_ids[row]
+                    self.update_existing_track(track_id, quality_detections[col])
+                    used_row_indices.add(row)
+                    used_col_indices.add(col)
+
+            # Handle unmatched detections and tracks
+            unused_row_indices = set(range(len(track_ids))) - used_row_indices
+            unused_col_indices = set(range(len(quality_detections))) - used_col_indices
+
+            # Register new objects for unmatched high-quality detections
+            for col in unused_col_indices:
+                if quality_detections[col]['quality'] > 0.5:  # Only register high-quality new detections
+                    self.register_new_object(quality_detections[col])
+
+            # Mark unmatched tracks as disappeared
+            for row in unused_row_indices:
+                track_id = track_ids[row]
+                self.disappeared[track_id] = self.disappeared.get(track_id, 0) + 1
+
+                if self.disappeared[track_id] > self.max_disappeared:
+                    self.remove_track(track_id)
+
+        # Return enhanced detections with track IDs
+        tracked_detections = []
+        for track_id, obj_data in self.tracked_objects.items():
+            detection = obj_data['detection'].copy()
+            detection['track_id'] = track_id
+            detection['is_locked'] = track_id in self.locked_objects
+            detection['track_duration'] = time.time() - obj_data['first_seen']
+            detection['stability'] = obj_data.get('stability', 0)
+
+            # Add enhanced velocity information
+            if track_id in self.velocities:
+                detection['velocity_x'] = self.velocities[track_id][0]
+                detection['velocity_y'] = self.velocities[track_id][1]
+                detection['speed'] = math.sqrt(self.velocities[track_id][0]**2 + self.velocities[track_id][1]**2)
+            else:
+                detection['velocity_x'] = 0.0
+                detection['velocity_y'] = 0.0
+                detection['speed'] = 0.0
+
+            # Add confidence stability
+            if track_id in self.confidence_history:
+                confidences = list(self.confidence_history[track_id])
+                detection['avg_confidence'] = sum(confidences) / len(confidences)
+                detection['confidence_stability'] = 1.0 - np.std(confidences) if len(confidences) > 1 else 1.0
+            else:
+                detection['avg_confidence'] = detection['confidence']
+                detection['confidence_stability'] = 1.0
+
+            tracked_detections.append(detection)
+
+        return tracked_detections
+
+    def register_new_object(self, detection):
+        """Register a new object with enhanced initialization"""
+        x, y, w, h = detection['bbox']
+        center = (x + w // 2, y + h // 2)
+        current_time = time.time()
+
+        self.tracked_objects[self.next_track_id] = {
+            'detection': detection,
+            'center': center,
+            'first_seen': current_time,
+            'last_seen': current_time,
+            'total_detections': 1,
+            'stability': 0
         }
 
-        # Load face cascade
+        # Initialize tracking data
+        self.track_history[self.next_track_id].append({
+            'center': center,
+            'timestamp': current_time,
+            'bbox': detection['bbox']
+        })
+
+        self.confidence_history[self.next_track_id].append(detection['confidence'])
+        self.size_history[self.next_track_id].append(w * h)
+        self.disappeared[self.next_track_id] = 0
+        self.next_track_id += 1
+
+    def update_existing_track(self, track_id, detection):
+        """Update existing track with enhanced smoothing"""
+        x, y, w, h = detection['bbox']
+        new_center = (x + w // 2, y + h // 2)
+        current_time = time.time()
+
+        # Apply position smoothing
+        old_center = self.tracked_objects[track_id]['center']
+        smoothed_center = (
+            self.position_smoothing * old_center[0] + (1 - self.position_smoothing) * new_center[0],
+            self.position_smoothing * old_center[1] + (1 - self.position_smoothing) * new_center[1]
+        )
+
+        # Calculate velocity with smoothed position
+        vx, vy = self.calculate_velocity(track_id, smoothed_center)
+        self.velocities[track_id] = (vx, vy)
+
+        # Update tracking data
+        self.track_history[track_id].append({
+            'center': smoothed_center,
+            'timestamp': current_time,
+            'bbox': detection['bbox']
+        })
+
+        self.confidence_history[track_id].append(detection['confidence'])
+        self.size_history[track_id].append(w * h)
+
+        # Update tracked object
+        self.tracked_objects[track_id]['detection'] = detection
+        self.tracked_objects[track_id]['center'] = smoothed_center
+        self.tracked_objects[track_id]['last_seen'] = current_time
+        self.tracked_objects[track_id]['total_detections'] += 1
+
+        # Update stability score
+        stability = min(self.tracked_objects[track_id]['total_detections'], self.stability_threshold)
+        self.tracked_objects[track_id]['stability'] = stability
+
+        # Reset disappeared counter
+        self.disappeared[track_id] = 0
+
+    def remove_track(self, track_id):
+        """Remove a track that has disappeared"""
+        if track_id in self.tracked_objects:
+            del self.tracked_objects[track_id]
+        if track_id in self.disappeared:
+            del self.disappeared[track_id]
+        if track_id in self.locked_objects:
+            self.locked_objects.remove(track_id)
+        if track_id in self.track_history:
+            del self.track_history[track_id]
+        if track_id in self.velocities:
+            del self.velocities[track_id]
+        if track_id in self.confidence_history:
+            del self.confidence_history[track_id]
+        if track_id in self.size_history:
+            del self.size_history[track_id]
+
+    def lock_object(self, track_id, reason="manual_lock"):
+        """Lock an object for detailed tracking"""
+        if track_id in self.tracked_objects:
+            self.locked_objects.add(track_id)
+            return True
+        return False
+
+    def unlock_object(self, track_id):
+        """Unlock an object"""
+        if track_id in self.locked_objects:
+            self.locked_objects.remove(track_id)
+            return True
+        return False
+
+class AdvancedObjectDetector:
+    def __init__(self):
+        # Enhanced COCO class names with confidence thresholds
+        self.class_names = [
+            "person", "bicycle", "car", "motorbike", "aeroplane", "bus", "train", "truck",
+            "boat", "traffic light", "fire hydrant", "stop sign", "parking meter", "bench",
+            "bird", "cat", "dog", "horse", "sheep", "cow", "elephant", "bear", "zebra",
+            "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
+            "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove",
+            "skateboard", "surfboard", "tennis racket", "bottle", "wine glass", "cup",
+            "fork", "knife", "spoon", "bowl", "banana", "apple", "sandwich", "orange",
+            "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "sofa",
+            "pottedplant", "bed", "diningtable", "toilet", "tvmonitor", "laptop", "mouse",
+            "remote", "keyboard", "cell phone", "microwave", "oven", "toaster", "sink",
+            "refrigerator", "book", "clock", "vase", "scissors", "teddy bear", "hair drier",
+            "toothbrush"
+        ]
+
+        self.running = False
+        self.tracker = EnhancedObjectTracker(max_disappeared=45, max_distance=120)
+        self.selected_track_id = None
+        self.auto_lock_enabled = True
+
+        # Enhanced background subtraction
+        self.bg_subtractor = cv2.createBackgroundSubtractorMOG2(
+            history=500, varThreshold=50, detectShadows=True
+        )
+
+        # Multiple cascade classifiers for better accuracy
         self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        self.profile_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_profileface.xml')
+        self.body_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_fullbody.xml')
+        self.upper_body_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_upperbody.xml')
 
-        # Initialize MobileNet SSD if available
-        self.net = None
-        try:
-            self.net = cv2.dnn.readNetFromTensorflow('frozen_inference_graph.pb', 'ssd_mobilenet_v2_coco.pbtxt')
-            print("MobileNet SSD loaded successfully")
-        except:
-            print("MobileNet SSD not found, using multiple Haar cascades and advanced detection methods")
+        # Enhanced YOLO setup
+        self.yolo_net = None
+        self.yolo_output_layers = None
+        self.load_yolo_model()
 
-        # Initialize camera
+        # Camera setup with enhanced parameters
+        self.setup_camera()
+
+        # Frame processing parameters
+        self.frame_skip = 1  # Process every frame for better accuracy
+        self.confidence_threshold = 0.4
+        self.nms_threshold = 0.3
+
+        print("Advanced real-time object detection initialized")
+
+    def load_yolo_model(self):
+        """Enhanced YOLO model loading with multiple model support"""
+        model_configs = [
+            ('yolov4.weights', 'yolov4.cfg'),
+            ('yolov3.weights', 'yolov3.cfg'),
+            ('yolov3-tiny.weights', 'yolov3-tiny.cfg')
+        ]
+
+        for weights, config in model_configs:
+            try:
+                if os.path.exists(weights) and os.path.exists(config):
+                    self.yolo_net = cv2.dnn.readNet(weights, config)
+                    layer_names = self.yolo_net.getLayerNames()
+                    unconnected = self.yolo_net.getUnconnectedOutLayers()
+                    self.yolo_output_layers = [layer_names[i - 1] for i in unconnected.flatten()]
+                    
+                    # Set backend for better performance
+                    self.yolo_net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
+                    self.yolo_net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
+                    
+                    print(f"YOLO model loaded: {weights}")
+                    return
+            except Exception as e:
+                print(f"Failed to load {weights}: {e}")
+                continue
+
+        print("No YOLO models available, using alternative detection methods")
+
+    def setup_camera(self):
+        """Enhanced camera setup with optimal parameters"""
         self.cap = cv2.VideoCapture(0)
         if not self.cap.isOpened():
             print("Error: Could not open camera")
             exit()
 
-        print("Camera initialized successfully")
-        print(f"Comprehensive object database loaded with {len(self.objects)} objects")
-        print("Multiple detection methods enabled: DNN, Contour, Color, Template, Multi-Cascade")
+        # Enhanced camera settings
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 720)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        self.cap.set(cv2.CAP_PROP_FPS, 30)
+        self.cap.set(cv2.CAP_PROP_BRIGHTNESS, 0.5)
+        self.cap.set(cv2.CAP_PROP_CONTRAST, 0.5)
+        self.cap.set(cv2.CAP_PROP_SATURATION, 0.5)
+        self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)
 
-    def detect_objects(self, image):
+    def detect_with_enhanced_yolo(self, frame):
+        """Enhanced YOLO detection with better preprocessing"""
         detections = []
-        h, w = image.shape[:2]
+        if self.yolo_net is None:
+            return detections
 
-        # Multiple cascade detectors for different object types
-        cascade_detectors = {
-            'face': cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'),
-            'eye': cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_eye.xml'),
-            'profile_face': cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_profileface.xml'),
-            'full_body': cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_fullbody.xml'),
-            'upper_body': cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_upperbody.xml')
-        }
+        height, width = frame.shape[:2]
 
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        # Enhanced preprocessing
+        blob = cv2.dnn.blobFromImage(
+            frame, 1/255.0, (608, 608), (0, 0, 0), True, crop=False
+        )
+        self.yolo_net.setInput(blob)
+        outputs = self.yolo_net.forward(self.yolo_output_layers)
 
-        # Multiple face detection approaches for better coverage
+        boxes = []
+        confidences = []
+        class_ids = []
+
+        for output in outputs:
+            for detection in output:
+                scores = detection[5:]
+                class_id = np.argmax(scores)
+                confidence = scores[class_id]
+
+                if confidence > self.confidence_threshold:
+                    center_x = int(detection[0] * width)
+                    center_y = int(detection[1] * height)
+                    w = int(detection[2] * width)
+                    h = int(detection[3] * height)
+
+                    x = int(center_x - w / 2)
+                    y = int(center_y - h / 2)
+
+                    # Boundary validation
+                    x = max(0, min(x, width - 1))
+                    y = max(0, min(y, height - 1))
+                    w = min(w, width - x)
+                    h = min(h, height - y)
+
+                    boxes.append([x, y, w, h])
+                    confidences.append(float(confidence))
+                    class_ids.append(class_id)
+
+        # Enhanced NMS
+        indexes = cv2.dnn.NMSBoxes(boxes, confidences, self.confidence_threshold, self.nms_threshold)
+
+        if len(indexes) > 0:
+            for i in indexes.flatten():
+                x, y, w, h = boxes[i]
+                detection = {
+                    'class': self.class_names[class_ids[i]] if class_ids[i] < len(self.class_names) else 'unknown',
+                    'confidence': confidences[i],
+                    'bbox': [x, y, w, h],
+                    'detection_method': 'yolo_enhanced'
+                }
+                detections.append(detection)
+
+        return detections
+
+    def detect_with_enhanced_haar_cascades(self, frame):
+        """Enhanced Haar cascade detection with multiple cascades"""
+        detections = []
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        # Apply histogram equalization for better detection
+        gray = cv2.equalizeHist(gray)
+
+        # Multiple face detection approaches
         face_detections = []
         
-        # Frontal face detection
-        faces = cascade_detectors['face'].detectMultiScale(gray, 1.1, 4, minSize=(30, 30))
-        for (x, y, w_face, h_face) in faces:
-            face_detections.append(('frontal_face', x, y, w_face, h_face))
+        # Frontal faces
+        faces = self.face_cascade.detectMultiScale(
+            gray, scaleFactor=1.1, minNeighbors=5, minSize=(40, 40)
+        )
+        for (x, y, w, h) in faces:
+            face_detections.append((x, y, w, h, 0.85, 'frontal_face'))
 
-        # Profile face detection
-        profiles = cascade_detectors['profile_face'].detectMultiScale(gray, 1.1, 4, minSize=(30, 30))
-        for (x, y, w_face, h_face) in profiles:
-            face_detections.append(('profile_face', x, y, w_face, h_face))
+        # Profile faces
+        profiles = self.profile_cascade.detectMultiScale(
+            gray, scaleFactor=1.1, minNeighbors=5, minSize=(40, 40)
+        )
+        for (x, y, w, h) in profiles:
+            face_detections.append((x, y, w, h, 0.75, 'profile_face'))
 
-        # Full body detection
-        bodies = cascade_detectors['full_body'].detectMultiScale(gray, 1.1, 3, minSize=(50, 50))
-        for (x, y, w_body, h_body) in bodies:
-            face_detections.append(('full_body', x, y, w_body, h_body))
-
-        # Upper body detection
-        upper_bodies = cascade_detectors['upper_body'].detectMultiScale(gray, 1.1, 3, minSize=(40, 40))
-        for (x, y, w_upper, h_upper) in upper_bodies:
-            face_detections.append(('upper_body', x, y, w_upper, h_upper))
-
-        # Process all human detections
-        for detection_type, x, y, w_det, h_det in face_detections:
-            # Extract region for analysis
-            det_region = image[y:y+h_det, x:x+w_det]
-            
-            # Assign class based on detection type
-            if 'face' in detection_type:
-                obj_class = 'person_face'
-            elif 'body' in detection_type:
-                obj_class = 'person_body'
-            else:
-                obj_class = 'person'
-            
+        # Filter overlapping face detections
+        filtered_faces = self.filter_cascade_overlaps(face_detections)
+        
+        for x, y, w, h, conf, method in filtered_faces:
             detection = {
-                'class': obj_class,
-                'confidence': 0.8,
-                'bbox': [int(x), int(y), int(w_det), int(h_det)],
-                'color': detect_dominant_color(det_region),
-                'age': estimate_object_age('person', det_region),
-                'material': 'organic',
-                'condition': 'living',
-                'detection_method': detection_type
+                'class': 'person',
+                'confidence': conf,
+                'bbox': [int(x), int(y), int(w), int(h)],
+                'detection_method': f'haar_{method}'
             }
             detections.append(detection)
 
-        # Contour-based object detection for additional objects
-        contour_detections = self.detect_objects_by_contours(image)
-        detections.extend(contour_detections)
-
-        # Color-based object detection
-        color_detections = self.detect_objects_by_color(image)
-        detections.extend(color_detections)
-
-        # Template matching for common objects
-        template_detections = self.detect_objects_by_template(image)
-        detections.extend(template_detections)
-
-        # If MobileNet is available, use it for general object detection
-        if self.net is not None:
-            blob = cv2.dnn.blobFromImage(image, 0.007843, (300, 300), 127.5)
-            self.net.setInput(blob)
-            output = self.net.forward()
-
-            for detection in output[0, 0, :, :]:
-                confidence = detection[2]
-                if confidence > 0.3:  # Lower threshold for more detections
-                    class_id = int(detection[1])
-                    if class_id < len(self.class_names):
-                        x = int(detection[3] * w)
-                        y = int(detection[4] * h)
-                        w_obj = int(detection[5] * w) - x
-                        h_obj = int(detection[6] * h) - y
-
-                        # Extract object region for analysis
-                        if x >= 0 and y >= 0 and x + w_obj <= w and y + h_obj <= h and w_obj > 10 and h_obj > 10:
-                            obj_region = image[y:y+h_obj, x:x+w_obj]
-                            
-                            # Enhanced object classification with comprehensive database
-                            enhanced_class = self.enhance_object_classification(self.class_names[class_id])
-                            
-                            detection_data = {
-                                'class': enhanced_class,
-                                'confidence': float(confidence),
-                                'bbox': [x, y, w_obj, h_obj],
-                                'color': detect_dominant_color(obj_region),
-                                'age': estimate_object_age(enhanced_class, obj_region),
-                                'material': self.predict_material(enhanced_class),
-                                'condition': self.predict_condition(enhanced_class, obj_region),
-                                'detection_method': 'dnn'
-                            }
-                            detections.append(detection_data)
-
-        # Remove overlapping detections
-        detections = self.filter_overlapping_detections(detections)
-
-        return detections
-
-    def enhance_object_classification(self, base_class):
-        """Enhance classification with more specific object types"""
-        enhancements = {
-            'car': ['sedan', 'suv', 'hatchback', 'coupe', 'convertible', 'pickup truck'],
-            'truck': ['delivery truck', 'semi truck', 'pickup truck', 'dump truck', 'fire truck'],
-            'person': ['adult', 'child', 'elderly person', 'teenager'],
-            'bottle': ['water bottle', 'wine bottle', 'beer bottle', 'soda bottle'],
-            'cup': ['coffee cup', 'tea cup', 'mug', 'disposable cup'],
-            'chair': ['office chair', 'dining chair', 'armchair', 'folding chair'],
-            'laptop': ['gaming laptop', 'business laptop', 'ultrabook', 'chromebook'],
-            'cell phone': ['smartphone', 'iphone', 'android phone', 'flip phone']
-        }
-        
-        if base_class in enhancements:
-            return random.choice(enhancements[base_class])
-        return base_class
-
-    def predict_material(self, object_class):
-        """Predict material based on object type"""
-        material_mapping = {
-            'car': 'metal', 'truck': 'metal', 'bus': 'metal', 'motorbike': 'metal',
-            'bottle': 'glass', 'wine glass': 'glass', 'cup': 'ceramic',
-            'chair': 'wood', 'sofa': 'fabric', 'bed': 'fabric',
-            'book': 'paper', 'laptop': 'plastic', 'cell phone': 'plastic',
-            'clothing': 'fabric', 'shoes': 'leather', 'bag': 'leather'
-        }
-        
-        for key, material in material_mapping.items():
-            if key in object_class.lower():
-                return material
-        
-        return random.choice(self.materials)
-
-    def predict_condition(self, object_class, image_region):
-        """Predict condition based on object type and image analysis"""
-        if image_region.size == 0:
-            return "unknown"
-            
-        # Analyze image quality metrics
-        gray = cv2.cvtColor(image_region, cv2.COLOR_BGR2GRAY)
-        sharpness = cv2.Laplacian(gray, cv2.CV_64F).var()
-        
-        if sharpness > 100:
-            return "excellent"
-        elif sharpness > 50:
-            return "good"
-        elif sharpness > 20:
-            return "fair"
-        else:
-            return "poor"
-
-    def detect_objects_by_contours(self, image):
-        """Detect objects using contour analysis"""
-        detections = []
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        
-        # Apply different edge detection methods
-        edges = cv2.Canny(gray, 50, 150)
-        
-        # Find contours
-        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
-        for contour in contours:
-            area = cv2.contourArea(contour)
-            if area > 500:  # Filter small contours
-                x, y, w, h = cv2.boundingRect(contour)
-                
-                # Extract region for analysis
-                if x >= 0 and y >= 0 and x + w < image.shape[1] and y + h < image.shape[0]:
-                    obj_region = image[y:y+h, x:x+w]
-                    
-                    # Classify based on shape
-                    object_class = self.classify_by_shape(contour)
-                    
+        # Upper body detection if few face detections
+        if len(filtered_faces) < 2:
+            upper_bodies = self.upper_body_cascade.detectMultiScale(
+                gray, scaleFactor=1.1, minNeighbors=4, minSize=(60, 80)
+            )
+            for (x, y, w, h) in upper_bodies:
+                # Avoid overlap with face detections
+                if not self.overlaps_with_faces(x, y, w, h, filtered_faces):
                     detection = {
-                        'class': object_class,
-                        'confidence': 0.6,
-                        'bbox': [x, y, w, h],
-                        'color': detect_dominant_color(obj_region),
-                        'age': estimate_object_age(object_class, obj_region),
-                        'material': self.predict_material(object_class),
-                        'condition': self.predict_condition(object_class, obj_region),
-                        'detection_method': 'contour'
+                        'class': 'person',
+                        'confidence': 0.7,
+                        'bbox': [int(x), int(y), int(w), int(h)],
+                        'detection_method': 'haar_upper_body'
                     }
                     detections.append(detection)
-        
+
+        # Full body detection if very few detections
+        if len(detections) < 1:
+            bodies = self.body_cascade.detectMultiScale(
+                gray, scaleFactor=1.1, minNeighbors=3, minSize=(80, 160)
+            )
+            for (x, y, w, h) in bodies:
+                detection = {
+                    'class': 'person',
+                    'confidence': 0.65,
+                    'bbox': [int(x), int(y), int(w), int(h)],
+                    'detection_method': 'haar_full_body'
+                }
+                detections.append(detection)
+
         return detections
 
-    def detect_objects_by_color(self, image):
-        """Detect objects using color segmentation"""
-        detections = []
-        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-        
-        # Define color ranges for common objects
-        color_ranges = {
-            'red_object': ([0, 50, 50], [10, 255, 255]),
-            'green_object': ([40, 50, 50], [80, 255, 255]),
-            'blue_object': ([100, 50, 50], [130, 255, 255]),
-            'yellow_object': ([20, 50, 50], [40, 255, 255]),
-            'orange_object': ([10, 50, 50], [20, 255, 255]),
-            'purple_object': ([130, 50, 50], [160, 255, 255])
-        }
-        
-        for color_name, (lower, upper) in color_ranges.items():
-            lower = np.array(lower, dtype=np.uint8)
-            upper = np.array(upper, dtype=np.uint8)
-            
-            mask = cv2.inRange(hsv, lower, upper)
-            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            
-            for contour in contours:
-                area = cv2.contourArea(contour)
-                if area > 800:  # Filter small areas
-                    x, y, w, h = cv2.boundingRect(contour)
-                    
-                    if x >= 0 and y >= 0 and x + w < image.shape[1] and y + h < image.shape[0]:
-                        obj_region = image[y:y+h, x:x+w]
-                        
-                        detection = {
-                            'class': color_name,
-                            'confidence': 0.7,
-                            'bbox': [x, y, w, h],
-                            'color': color_name.split('_')[0],
-                            'age': estimate_object_age(color_name, obj_region),
-                            'material': 'unknown',
-                            'condition': self.predict_condition(color_name, obj_region),
-                            'detection_method': 'color'
-                        }
-                        detections.append(detection)
-        
-        return detections
+    def filter_cascade_overlaps(self, detections):
+        """Filter overlapping cascade detections"""
+        if len(detections) <= 1:
+            return detections
 
-    def detect_objects_by_template(self, image):
-        """Detect objects using basic template matching"""
-        detections = []
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        # Sort by confidence
+        detections.sort(key=lambda x: x[4], reverse=True)
         
-        # Create simple templates for common shapes
-        templates = {
-            'circle': self.create_circle_template(),
-            'rectangle': self.create_rectangle_template(),
-            'triangle': self.create_triangle_template()
-        }
-        
-        for shape_name, template in templates.items():
-            if template is not None:
-                result = cv2.matchTemplate(gray, template, cv2.TM_CCOEFF_NORMED)
-                locations = np.where(result >= 0.6)
+        filtered = []
+        for current in detections:
+            x1, y1, w1, h1, conf1, method1 = current
+            
+            overlaps = False
+            for existing in filtered:
+                x2, y2, w2, h2, conf2, method2 = existing
                 
-                for pt in zip(*locations[::-1]):
-                    x, y = pt
-                    w, h = template.shape[::-1]
-                    
-                    if x >= 0 and y >= 0 and x + w < image.shape[1] and y + h < image.shape[0]:
-                        obj_region = image[y:y+h, x:x+w]
-                        
-                        detection = {
-                            'class': f'{shape_name}_shape',
-                            'confidence': 0.65,
-                            'bbox': [x, y, w, h],
-                            'color': detect_dominant_color(obj_region),
-                            'age': 'unknown',
-                            'material': 'unknown',
-                            'condition': 'unknown',
-                            'detection_method': 'template'
-                        }
-                        detections.append(detection)
+                # Calculate overlap
+                overlap_area = max(0, min(x1 + w1, x2 + w2) - max(x1, x2)) * \
+                              max(0, min(y1 + h1, y2 + h2) - max(y1, y2))
+                area1 = w1 * h1
+                area2 = w2 * h2
+                
+                if overlap_area > 0.3 * min(area1, area2):
+                    overlaps = True
+                    break
+            
+            if not overlaps:
+                filtered.append(current)
         
+        return filtered
+
+    def overlaps_with_faces(self, x, y, w, h, face_detections):
+        """Check if detection overlaps with face detections"""
+        for fx, fy, fw, fh, _, _ in face_detections:
+            overlap_area = max(0, min(x + w, fx + fw) - max(x, fx)) * \
+                          max(0, min(y + h, fy + fh) - max(y, fy))
+            if overlap_area > 0.2 * (w * h):
+                return True
+        return False
+
+    def detect_with_enhanced_background_subtraction(self, frame):
+        """Enhanced background subtraction with improved filtering"""
+        detections = []
+
+        # Apply background subtraction
+        fg_mask = self.bg_subtractor.apply(frame)
+
+        # Enhanced morphological operations
+        kernel_open = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        kernel_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+        
+        fg_mask = cv2.morphologyEx(fg_mask, cv2.MORPH_OPEN, kernel_open)
+        fg_mask = cv2.morphologyEx(fg_mask, cv2.MORPH_CLOSE, kernel_close)
+
+        # Gaussian blur to smooth
+        fg_mask = cv2.GaussianBlur(fg_mask, (5, 5), 0)
+
+        # Find contours
+        contours, _ = cv2.findContours(fg_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            if area > 1500:  # Larger minimum area
+                x, y, w, h = cv2.boundingRect(contour)
+
+                # Enhanced filtering criteria
+                aspect_ratio = float(w) / h
+                extent = area / (w * h)
+                solidity = area / cv2.contourArea(cv2.convexHull(contour))
+
+                # More sophisticated filtering
+                if (0.2 < aspect_ratio < 4.0 and 
+                    w > 40 and h > 60 and 
+                    extent > 0.3 and 
+                    solidity > 0.5):
+                    
+                    # Calculate confidence based on movement characteristics
+                    confidence = min(0.8, (area / 5000.0) * extent * solidity)
+                    
+                    detection = {
+                        'class': 'moving_object',
+                        'confidence': confidence,
+                        'bbox': [x, y, w, h],
+                        'detection_method': 'background_subtraction_enhanced'
+                    }
+                    detections.append(detection)
+
         return detections
 
-    def classify_by_shape(self, contour):
-        """Classify object based on contour shape"""
-        # Calculate shape descriptors
-        epsilon = 0.02 * cv2.arcLength(contour, True)
-        approx = cv2.approxPolyDP(contour, epsilon, True)
-        
-        num_vertices = len(approx)
-        area = cv2.contourArea(contour)
-        perimeter = cv2.arcLength(contour, True)
-        
-        if perimeter == 0:
-            return "unknown_shape"
-            
-        circularity = 4 * np.pi * area / (perimeter * perimeter)
-        
-        # Classification based on shape properties
-        if num_vertices == 3:
-            return "triangular_object"
-        elif num_vertices == 4:
-            x, y, w, h = cv2.boundingRect(contour)
-            aspect_ratio = float(w) / h
-            if 0.95 <= aspect_ratio <= 1.05:
-                return "square_object"
-            else:
-                return "rectangular_object"
-        elif circularity > 0.7:
-            return "circular_object"
-        elif num_vertices > 6:
-            return "complex_object"
-        else:
-            return f"{num_vertices}_sided_object"
+    def detect_objects(self, frame):
+        """Enhanced main detection function with intelligent method selection"""
+        all_detections = []
 
-    def create_circle_template(self):
-        """Create a circle template"""
-        template = np.zeros((50, 50), dtype=np.uint8)
-        cv2.circle(template, (25, 25), 20, 255, -1)
-        return template
+        # Primary: Enhanced YOLO (most accurate)
+        if self.yolo_net is not None:
+            yolo_detections = self.detect_with_enhanced_yolo(frame)
+            all_detections.extend(yolo_detections)
 
-    def create_rectangle_template(self):
-        """Create a rectangle template"""
-        template = np.zeros((40, 60), dtype=np.uint8)
-        cv2.rectangle(template, (5, 5), (55, 35), 255, -1)
-        return template
+        # Secondary: Enhanced Haar cascades (reliable for people)
+        haar_detections = self.detect_with_enhanced_haar_cascades(frame)
+        all_detections.extend(haar_detections)
 
-    def create_triangle_template(self):
-        """Create a triangle template"""
-        template = np.zeros((50, 50), dtype=np.uint8)
-        points = np.array([[25, 5], [5, 45], [45, 45]], np.int32)
-        cv2.fillPoly(template, [points], 255)
-        return template
+        # Tertiary: Enhanced background subtraction (motion-based)
+        if len(all_detections) < 3:  # Only if few detections from other methods
+            bg_detections = self.detect_with_enhanced_background_subtraction(frame)
+            all_detections.extend(bg_detections)
 
-    def filter_overlapping_detections(self, detections):
-        """Remove overlapping detections using Non-Maximum Suppression"""
+        # Enhanced filtering with quality assessment
+        filtered_detections = self.advanced_filter_detections(all_detections, frame)
+
+        return filtered_detections
+
+    def advanced_filter_detections(self, detections, frame):
+        """Advanced detection filtering with quality assessment"""
         if not detections:
             return detections
-        
-        # Convert to format needed for NMS
+
+        # Quality scoring for each detection
+        scored_detections = []
+        for detection in detections:
+            quality_score = self.calculate_detection_quality_score(detection, frame)
+            detection['quality_score'] = quality_score
+            scored_detections.append(detection)
+
+        # Sort by quality score
+        scored_detections.sort(key=lambda x: x['quality_score'], reverse=True)
+
+        # Advanced NMS with quality weighting
         boxes = []
         scores = []
         indices = []
-        
-        for i, detection in enumerate(detections):
+
+        for i, detection in enumerate(scored_detections):
             x, y, w, h = detection['bbox']
             boxes.append([x, y, x + w, y + h])
-            scores.append(detection['confidence'])
+            scores.append(detection['quality_score'])
             indices.append(i)
-        
+
+        if len(boxes) == 0:
+            return detections
+
         boxes = np.array(boxes, dtype=np.float32)
         scores = np.array(scores, dtype=np.float32)
-        
-        # Apply NMS
-        keep_indices = cv2.dnn.NMSBoxes(boxes.tolist(), scores.tolist(), 0.3, 0.4)
-        
+
+        # Apply enhanced NMS
+        keep_indices = cv2.dnn.NMSBoxes(boxes.tolist(), scores.tolist(), 0.3, 0.2)
+
         filtered_detections = []
         if len(keep_indices) > 0:
             keep_indices = keep_indices.flatten()
             for i in keep_indices:
-                filtered_detections.append(detections[indices[i]])
-        
+                if scored_detections[indices[i]]['quality_score'] > 0.3:
+                    filtered_detections.append(scored_detections[indices[i]])
+
         return filtered_detections
 
+    def calculate_detection_quality_score(self, detection, frame):
+        """Calculate comprehensive quality score for detection"""
+        confidence = detection['confidence']
+        bbox = detection['bbox']
+        x, y, w, h = bbox
+        
+        # Basic quality factors
+        area = w * h
+        aspect_ratio = w / max(h, 1)
+        
+        # Confidence score (40%)
+        confidence_score = confidence
+        
+        # Size score (20%) - prefer medium to large objects
+        optimal_area = 10000  # Approximate good detection size
+        size_score = 1.0 - abs(area - optimal_area) / (optimal_area * 2)
+        size_score = max(0, min(size_score, 1.0))
+        
+        # Aspect ratio score (15%) - prefer human-like ratios
+        if detection['class'] == 'person':
+            optimal_ratio = 0.5  # Height > width for people
+            aspect_score = 1.0 - abs(aspect_ratio - optimal_ratio) / 2.0
+        else:
+            aspect_score = 0.7  # Neutral for other objects
+        aspect_score = max(0, min(aspect_score, 1.0))
+        
+        # Position score (15%) - prefer center areas, penalize edges
+        frame_h, frame_w = frame.shape[:2]
+        center_x, center_y = x + w//2, y + h//2
+        dist_from_center = math.sqrt(
+            ((center_x - frame_w//2) / (frame_w//2))**2 + 
+            ((center_y - frame_h//2) / (frame_h//2))**2
+        )
+        position_score = 1.0 - min(dist_from_center, 1.0)
+        
+        # Method reliability score (10%)
+        method_scores = {
+            'yolo_enhanced': 1.0,
+            'haar_frontal_face': 0.9,
+            'haar_profile_face': 0.8,
+            'haar_upper_body': 0.7,
+            'haar_full_body': 0.6,
+            'background_subtraction_enhanced': 0.5
+        }
+        method = detection.get('detection_method', 'unknown')
+        method_score = method_scores.get(method, 0.4)
+        
+        # Calculate weighted quality score
+        quality = (confidence_score * 0.4 + 
+                  size_score * 0.2 + 
+                  aspect_score * 0.15 + 
+                  position_score * 0.15 + 
+                  method_score * 0.1)
+        
+        return min(quality, 1.0)
+
     def save_detection_to_db(self, detection):
-        """Save detection to database in a separate thread"""
+        """Enhanced database saving with error handling"""
         try:
             conn = sqlite3.connect('detections.db')
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT INTO detections (timestamp, object_class, confidence, bbox_x, bbox_y, bbox_w, bbox_h, 
-                                      predicted_color, predicted_age, material, condition_score)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                      track_id, is_locked, track_duration, velocity_x, velocity_y)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 datetime.now(),
                 detection['class'],
@@ -923,267 +795,321 @@ class LiveObjectDetector:
                 detection['bbox'][1],
                 detection['bbox'][2],
                 detection['bbox'][3],
-                detection.get('color', 'unknown'),
-                detection.get('age', 'unknown'),
-                detection.get('material', 'unknown'),
-                float(detection['confidence'])
+                detection.get('track_id', None),
+                detection.get('is_locked', False),
+                detection.get('track_duration', 0.0),
+                detection.get('velocity_x', 0.0),
+                detection.get('velocity_y', 0.0)
             ))
             conn.commit()
             conn.close()
         except Exception as e:
             print(f"Database error: {e}")
 
-    def draw_detections(self, image, detections):
-        """Draw bounding boxes and labels on the image with color coding for detection methods"""
+    def draw_enhanced_detections(self, frame, detections):
+        """Enhanced visualization with more information"""
         detection_colors = {
-            'dnn': (0, 255, 0),      # Green for DNN
-            'contour': (255, 0, 0),   # Blue for contour
-            'color': (0, 255, 255),   # Yellow for color-based
-            'template': (255, 0, 255), # Magenta for template
-            'frontal_face': (0, 255, 0), # Green for face
-            'profile_face': (0, 200, 0), # Dark green for profile
-            'full_body': (0, 150, 0),    # Darker green for body
-            'upper_body': (0, 180, 0)    # Medium green for upper body
+            'yolo_enhanced': (0, 255, 0),
+            'haar_frontal_face': (255, 100, 0),
+            'haar_profile_face': (255, 150, 0),
+            'haar_upper_body': (255, 200, 0),
+            'haar_full_body': (0, 0, 255),
+            'background_subtraction_enhanced': (255, 255, 0)
         }
-        
+
         for i, detection in enumerate(detections):
             x, y, w, h = detection['bbox']
             confidence = detection['confidence']
             class_name = detection['class']
-            color = detection.get('color', 'unknown')
-            age = detection.get('age', 'unknown')
-            material = detection.get('material', 'unknown')
             method = detection.get('detection_method', 'unknown')
+            track_id = detection.get('track_id', None)
+            is_locked = detection.get('is_locked', False)
+            track_duration = detection.get('track_duration', 0.0)
+            velocity_x = detection.get('velocity_x', 0.0)
+            velocity_y = detection.get('velocity_y', 0.0)
+            speed = detection.get('speed', 0.0)
+            stability = detection.get('stability', 0)
+            quality_score = detection.get('quality_score', 0.0)
 
-            # Choose color based on detection method
-            box_color = detection_colors.get(method, (128, 128, 128))
+            # Enhanced color coding
+            if is_locked:
+                box_color = (0, 0, 255)  # Red for locked
+                thickness = 4
+            elif track_id == self.selected_track_id:
+                box_color = (255, 255, 0)  # Yellow for selected
+                thickness = 3
+            elif stability >= 5:
+                box_color = (0, 255, 0)  # Green for stable tracks
+                thickness = 2
+            else:
+                box_color = detection_colors.get(method, (128, 128, 128))
+                thickness = 2
 
-            # Draw bounding box with method-specific color
-            cv2.rectangle(image, (x, y), (x + w, y + h), box_color, 2)
+            # Main bounding box
+            cv2.rectangle(frame, (x, y), (x + w, y + h), box_color, thickness)
 
-            # Draw detection number
-            cv2.circle(image, (x + 10, y + 10), 12, box_color, -1)
-            cv2.putText(image, str(i + 1), (x + 5, y + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+            # Quality indicator bar
+            quality_width = int(w * quality_score)
+            cv2.rectangle(frame, (x, y - 8), (x + quality_width, y - 3), (0, 255, 0), -1)
+            cv2.rectangle(frame, (x + quality_width, y - 8), (x + w, y - 3), (0, 0, 255), -1)
 
-            # Draw enhanced label with color and age
+            # Track information panel
+            if track_id is not None:
+                # Track ID circle
+                cv2.circle(frame, (x + 20, y + 20), 15, box_color, -1)
+                cv2.putText(frame, f"T{track_id}", (x + 10, y + 26), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+
+                # Stability indicator
+                stability_color = (0, 255, 0) if stability >= 5 else (255, 255, 0) if stability >= 2 else (255, 0, 0)
+                cv2.rectangle(frame, (x + w - 30, y + 5), (x + w - 5, y + 15), stability_color, -1)
+                cv2.putText(frame, f"S{stability}", (x + w - 28, y + 13), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (0, 0, 0), 1)
+
+                # Lock indicator
+                if is_locked:
+                    cv2.rectangle(frame, (x + w - 25, y + 20), (x + w - 5, y + 35), (0, 0, 255), -1)
+                    cv2.putText(frame, "L", (x + w - 20, y + 32), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+
+                # Speed indicator for moving objects
+                if speed > 5:
+                    speed_text = f"{speed:.0f}"
+                    cv2.putText(frame, speed_text, (x + w - 40, y + h - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+
+            # Detection number
+            cv2.circle(frame, (x + w - 15, y + 15), 12, box_color, -1)
+            cv2.putText(frame, str(i + 1), (x + w - 20, y + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+
+            # Enhanced trajectory visualization
+            if track_id and track_id in self.tracker.track_history:
+                history = list(self.tracker.track_history[track_id])
+                if len(history) > 1:
+                    points = []
+                    for hist_item in history[-15:]:
+                        hist_bbox = hist_item['bbox']
+                        center = (hist_bbox[0] + hist_bbox[2] // 2, hist_bbox[1] + hist_bbox[3] // 2)
+                        points.append(center)
+
+                    # Draw trajectory with gradient
+                    for j in range(1, len(points)):
+                        alpha = j / len(points)
+                        color_intensity = int(255 * alpha)
+                        trajectory_color = (0, color_intensity, 0)
+                        cv2.line(frame, points[j-1], points[j], trajectory_color, max(1, int(3 * alpha)))
+
+            # Enhanced label with comprehensive info
             label = f"{class_name}: {confidence:.2f}"
-            details = f"Color: {color}, Age: {age}"
-            method_info = f"Method: {method}, Material: {material}"
-            
-            label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)[0]
-            details_size = cv2.getTextSize(details, cv2.FONT_HERSHEY_SIMPLEX, 0.35, 1)[0]
-            method_size = cv2.getTextSize(method_info, cv2.FONT_HERSHEY_SIMPLEX, 0.35, 1)[0]
-            
-            max_width = max(label_size[0], details_size[0], method_size[0])
-            
-            # Main label background with transparency effect
-            overlay = image.copy()
-            cv2.rectangle(overlay, (x, y - 40), (x + max_width + 10, y), box_color, -1)
-            cv2.addWeighted(overlay, 0.7, image, 0.3, 0, image)
-            
-            # Draw text with better visibility
-            cv2.putText(image, label, (x + 2, y - 25), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
-            cv2.putText(image, details, (x + 2, y - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (255, 255, 255), 1)
-            cv2.putText(image, method_info, (x + 2, y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (255, 255, 255), 1)
+            if track_id is not None:
+                track_info = f"T{track_id} {track_duration:.1f}s S{stability}"
+                if speed > 1:
+                    track_info += f" {speed:.0f}px/s"
+                quality_info = f"Q:{quality_score:.2f} {method.split('_')[0]}"
+            else:
+                track_info = f"Q:{quality_score:.2f}"
+                quality_info = method.split('_')[0]
 
-        # Draw detection method legend
-        self.draw_detection_legend(image, detection_colors)
+            # Dynamic label background
+            label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
+            track_size = cv2.getTextSize(track_info, cv2.FONT_HERSHEY_SIMPLEX, 0.3, 1)[0] if track_info else (0, 0)
+            quality_size = cv2.getTextSize(quality_info, cv2.FONT_HERSHEY_SIMPLEX, 0.3, 1)[0]
+            max_width = max(label_size[0], track_size[0], quality_size[0])
 
-        return image
+            cv2.rectangle(frame, (x, y - 45), (x + max_width + 10, y), box_color, -1)
+            cv2.putText(frame, label, (x + 2, y - 33), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+            if track_info:
+                cv2.putText(frame, track_info, (x + 2, y - 18), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (255, 255, 255), 1)
+            cv2.putText(frame, quality_info, (x + 2, y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (200, 200, 200), 1)
 
-    def draw_detection_legend(self, image, detection_colors):
-        """Draw a legend showing detection methods and their colors"""
-        legend_x = 10
-        legend_y = image.shape[0] - 120
+        # Enhanced stats panel
+        self.draw_enhanced_stats_panel(frame, detections)
+
+        return frame
+
+    def draw_enhanced_stats_panel(self, frame, detections):
+        """Enhanced statistics panel with more detailed information"""
+        stats_x = frame.shape[1] - 220
+        stats_y = 30
+
+        # Background with transparency effect
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (stats_x - 10, stats_y - 10), (frame.shape[1] - 10, stats_y + 140), (0, 0, 0), -1)
+        cv2.addWeighted(overlay, 0.8, frame, 0.2, 0, frame)
+        cv2.rectangle(frame, (stats_x - 10, stats_y - 10), (frame.shape[1] - 10, stats_y + 140), (255, 255, 255), 2)
+
+        # Enhanced statistics
+        total_tracks = len(self.tracker.tracked_objects)
+        locked_tracks = len(self.tracker.locked_objects)
+        stable_tracks = sum(1 for obj in self.tracker.tracked_objects.values() if obj.get('stability', 0) >= 5)
+        high_quality = sum(1 for det in detections if det.get('quality_score', 0) > 0.7)
+
+        cv2.putText(frame, "DETECTION STATUS", (stats_x, stats_y), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+        cv2.putText(frame, f"Active Tracks: {total_tracks}", (stats_x, stats_y + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (0, 255, 0), 1)
+        cv2.putText(frame, f"Stable: {stable_tracks}", (stats_x, stats_y + 35), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (0, 255, 255), 1)
+        cv2.putText(frame, f"Locked: {locked_tracks}", (stats_x, stats_y + 50), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (0, 0, 255), 1)
+        cv2.putText(frame, f"High Quality: {high_quality}", (stats_x, stats_y + 65), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (255, 255, 0), 1)
+        cv2.putText(frame, f"Selected: {self.selected_track_id or 'None'}", (stats_x, stats_y + 80), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (255, 255, 0), 1)
         
-        cv2.rectangle(image, (legend_x - 5, legend_y - 20), (legend_x + 200, legend_y + 80), (0, 0, 0), -1)
-        cv2.putText(image, "Detection Methods:", (legend_x, legend_y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
-        
-        methods = ['dnn', 'contour', 'color', 'template', 'frontal_face']
-        for i, method in enumerate(methods):
-            y_pos = legend_y + (i * 12)
-            color = detection_colors.get(method, (128, 128, 128))
-            cv2.rectangle(image, (legend_x, y_pos), (legend_x + 10, y_pos + 8), color, -1)
-            cv2.putText(image, method, (legend_x + 15, y_pos + 6), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (255, 255, 255), 1)
+        cv2.putText(frame, "CONTROLS:", (stats_x, stats_y + 100), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (255, 255, 255), 1)
+        cv2.putText(frame, "L-Lock U-Unlock", (stats_x, stats_y + 115), cv2.FONT_HERSHEY_SIMPLEX, 0.25, (200, 200, 200), 1)
+        cv2.putText(frame, "1-9-Select Q-Quit", (stats_x, stats_y + 130), cv2.FONT_HERSHEY_SIMPLEX, 0.25, (200, 200, 200), 1)
 
-    def run_live_detection(self):
-        """Main detection loop"""
+    def run_detection(self):
+        """Enhanced main detection loop with better performance"""
         self.running = True
-        print("Starting live object detection...")
-        print("Press 'q' to quit, 's' to save current frame")
-
         frame_count = 0
-        last_detection_time = time.time()
+        fps_counter = 0
+        start_time = time.time()
+
+        print("Starting advanced real-time object detection...")
+        print("Enhanced features: Multi-method detection, quality scoring, stability tracking")
+        print("Controls: 'q' to quit, 'l' to lock, 'u' to unlock, '1-9' to select track")
 
         while self.running:
             ret, frame = self.cap.read()
             if not ret:
-                print("Error: Could not read frame")
+                print("Error reading frame")
                 break
 
             frame_count += 1
+            fps_counter += 1
+
+            # Process every frame for maximum accuracy
+            detections = self.detect_objects(frame)
+
+            # Update tracker with enhanced detections
+            tracked_detections = self.tracker.update(detections)
+
+            # Enhanced reporting
             current_time = time.time()
+            if current_time - start_time >= 1.0:  # Every second
+                fps = fps_counter / (current_time - start_time)
+                fps_counter = 0
+                start_time = current_time
 
-            # Perform detection every 3 frames for better real-time performance
-            if frame_count % 3 == 0:
-                detections = self.detect_objects(frame)
-
-                # Print detections to console with method information
-                if detections:
-                    print(f"\n--- Frame {frame_count} - {len(detections)} objects detected simultaneously ---")
+                if tracked_detections:
+                    print(f"\nFPS: {fps:.1f} | Frame {frame_count}: {len(tracked_detections)} objects tracked")
+                    stable_tracks = [d for d in tracked_detections if d.get('stability', 0) >= 5]
+                    high_quality = [d for d in tracked_detections if d.get('quality_score', 0) > 0.7]
                     
-                    # Group detections by method
-                    method_groups = {}
-                    for detection in detections:
-                        method = detection.get('detection_method', 'unknown')
-                        if method not in method_groups:
-                            method_groups[method] = []
-                        method_groups[method].append(detection)
+                    print(f"  Stable tracks: {len(stable_tracks)}, High quality: {len(high_quality)}")
                     
-                    # Print grouped detections
-                    for method, method_detections in method_groups.items():
-                        print(f"  {method.upper()} Detection ({len(method_detections)} objects):")
-                        for i, detection in enumerate(method_detections):
-                            print(f"    {i+1}. {detection['class']} (conf: {detection['confidence']:.2f}) "
-                                  f"Color: {detection.get('color', 'unknown')}, "
-                                  f"Age: {detection.get('age', 'unknown')}, "
-                                  f"Material: {detection.get('material', 'unknown')} "
-                                  f"at [{detection['bbox'][0]}, {detection['bbox'][1]}, {detection['bbox'][2]}, {detection['bbox'][3]}]")
+                    for i, det in enumerate(tracked_detections[:3]):
+                        quality = det.get('quality_score', 0)
+                        stability = det.get('stability', 0)
+                        speed = det.get('speed', 0)
+                        print(f"  {i+1}. {det['class']} (conf: {det['confidence']:.2f}, q: {quality:.2f}) "
+                              f"Track: {det.get('track_id', 'N/A')} (stab: {stability}, speed: {speed:.0f})")
 
-                            # Save to database in background thread
-                            threading.Thread(target=self.save_detection_to_db, args=(detection,), daemon=True).start()
+                # Save high-quality detections to database
+                for detection in tracked_detections:
+                    if detection.get('quality_score', 0) > 0.5:
+                        threading.Thread(target=self.save_detection_to_db, args=(detection,), daemon=True).start()
 
-                # Draw detections on frame
-                frame = self.draw_detections(frame, detections)
-                last_detection_time = current_time
-                
-                # Store detections for statistics
-                self.recent_detections = detections
+            # Enhanced visualization
+            frame = self.draw_enhanced_detections(frame, tracked_detections)
 
-            # Display FPS and detection statistics
-            fps = frame_count / (current_time - self.start_time) if hasattr(self, 'start_time') else 0
-            current_detection_count = len(getattr(self, 'recent_detections', []))
-            
-            # Update simultaneous detection maximum
-            if current_detection_count > self.detection_stats['simultaneous_max']:
-                self.detection_stats['simultaneous_max'] = current_detection_count
-            
-            cv2.putText(frame, f"FPS: {fps:.1f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
-            cv2.putText(frame, f"Frame: {frame_count}", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
-            cv2.putText(frame, f"Current Objects: {current_detection_count}", (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-            cv2.putText(frame, f"Max Simultaneous: {self.detection_stats['simultaneous_max']}", (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
-            cv2.putText(frame, f"DB Objects: {len(self.objects)}", (10, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+            # Display frame
+            cv2.imshow('Advanced Real-Time Object Detection', frame)
 
-            # Show frame
-            cv2.imshow('Enhanced Object Detection - 10,000+ Objects', frame)
-
-            # Handle key presses
+            # Enhanced key handling
             key = cv2.waitKey(1) & 0xFF
             if key == ord('q'):
-                print("Quitting...")
                 break
-            elif key == ord('s'):
-                filename = f"detection_frame_{frame_count}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
-                cv2.imwrite(filename, frame)
-                print(f"Frame saved as {filename}")
-            elif key == ord('p'):
-                # Pause/unpause
-                print("Paused. Press any key to continue...")
-                cv2.waitKey(0)
+            elif key == ord('l'):
+                if self.selected_track_id:
+                    self.tracker.lock_object(self.selected_track_id)
+                    print(f"Locked track {self.selected_track_id}")
+                elif tracked_detections:
+                    best_detection = max(tracked_detections, key=lambda x: x.get('quality_score', 0))
+                    track_id = best_detection.get('track_id')
+                    if track_id:
+                        self.tracker.lock_object(track_id)
+                        print(f"Locked highest quality track {track_id}")
+            elif key == ord('u'):
+                if self.selected_track_id:
+                    self.tracker.unlock_object(self.selected_track_id)
+                    print(f"Unlocked track {self.selected_track_id}")
+                else:
+                    for track_id in list(self.tracker.locked_objects):
+                        self.tracker.unlock_object(track_id)
+                    print("Unlocked all objects")
+            elif key >= ord('1') and key <= ord('9'):
+                track_num = key - ord('1')
+                if track_num < len(tracked_detections):
+                    self.selected_track_id = tracked_detections[track_num].get('track_id')
+                    print(f"Selected track {self.selected_track_id}")
 
         self.stop()
 
-    def start(self):
-        """Start the detection system"""
-        self.start_time = time.time()
-        try:
-            self.run_live_detection()
-        except KeyboardInterrupt:
-            print("\nInterrupted by user")
-            self.stop()
-
     def stop(self):
-        """Stop the detection system"""
+        """Enhanced cleanup"""
         self.running = False
         if self.cap:
             self.cap.release()
         cv2.destroyAllWindows()
-        print("Detection system stopped")
+        print("Advanced detection system stopped")
 
-def print_detection_stats():
-    """Print detection statistics from database"""
+def print_enhanced_detection_stats():
+    """Enhanced statistics reporting"""
     try:
         conn = sqlite3.connect('detections.db')
         cursor = conn.cursor()
 
-        cursor.execute('''
-            SELECT object_class, COUNT(*) as count, AVG(confidence) as avg_confidence,
-                   predicted_color, predicted_age, material
-            FROM detections
-            GROUP BY object_class, predicted_color, predicted_age, material
-            ORDER BY count DESC
-            LIMIT 20
-        ''')
-
-        print("\n=== Enhanced Detection Statistics ===")
-        for row in cursor.fetchall():
-            print(f"{row[0]} ({row[3]}, {row[4]}, {row[5]}): {row[1]} detections (avg confidence: {row[2]:.2f})")
-
         cursor.execute('SELECT COUNT(*) FROM detections')
         total = cursor.fetchone()[0]
-        print(f"\nTotal detections: {total}")
 
-        # Color statistics
         cursor.execute('''
-            SELECT predicted_color, COUNT(*) as count
-            FROM detections
-            GROUP BY predicted_color
-            ORDER BY count DESC
+            SELECT object_class, COUNT(*) as count, AVG(confidence) as avg_conf, 
+                   AVG(track_duration) as avg_duration
+            FROM detections 
+            WHERE confidence > 0.5
+            GROUP BY object_class 
+            ORDER BY count DESC 
+            LIMIT 10
         ''')
-        print("\n=== Color Distribution ===")
-        for row in cursor.fetchall():
-            print(f"{row[0]}: {row[1]} detections")
 
-        # Age statistics
-        cursor.execute('''
-            SELECT predicted_age, COUNT(*) as count
-            FROM detections
-            GROUP BY predicted_age
-            ORDER BY count DESC
-        ''')
-        print("\n=== Age/Condition Distribution ===")
+        print(f"\n=== Enhanced Detection Statistics (Total: {total}) ===")
         for row in cursor.fetchall():
-            print(f"{row[0]}: {row[1]} detections")
+            print(f"{row[0]}: {row[1]} detections (avg conf: {row[2]:.2f}, avg duration: {row[3]:.1f}s)")
+
+        # Track quality statistics
+        cursor.execute('''
+            SELECT COUNT(DISTINCT track_id) as unique_tracks,
+                   AVG(track_duration) as avg_track_time,
+                   MAX(track_duration) as max_track_time
+            FROM detections 
+            WHERE track_id IS NOT NULL
+        ''')
+        
+        track_stats = cursor.fetchone()
+        if track_stats[0]:
+            print(f"\nTracking Performance:")
+            print(f"Unique tracks: {track_stats[0]}")
+            print(f"Average track duration: {track_stats[1]:.1f}s")
+            print(f"Longest track: {track_stats[2]:.1f}s")
 
         conn.close()
     except Exception as e:
-        print(f"Error reading statistics: {e}")
+        print(f"Error reading enhanced stats: {e}")
 
 if __name__ == '__main__':
     # Initialize database
     init_db()
 
-    print("Enhanced Live Object Detection System")
-    print("=====================================")
-    print("Features:")
-    print("- 10,000+ object detection capability")
-    print("- Color prediction")
-    print("- Age/condition estimation")
-    print("- Material identification")
-    print("- Comprehensive database storage")
-    print()
-    print("Controls:")
-    print("- Press 'q' to quit")
-    print("- Press 's' to save current frame")
-    print("- Press 'p' to pause/unpause")
-    print("- Press Ctrl+C to force quit")
+    print("Advanced Real-Time Object Detection System")
+    print("==========================================")
+    print("Enhanced Features:")
+    print("- Multi-method detection (YOLO + Haar + Background)")
+    print("- Quality scoring and filtering")
+    print("- Enhanced object tracking with prediction")
+    print("- Velocity and stability analysis")
+    print("- Advanced visualization")
     print()
 
-    # Create and start detector
-    detector = LiveObjectDetector()
+    detector = AdvancedObjectDetector()
 
     try:
-        detector.start()
+        detector.run_detection()
+    except KeyboardInterrupt:
+        print("\nStopping detection...")
+        detector.stop()
     finally:
-        # Print final statistics
-        print_detection_stats()
+        print_enhanced_detection_stats()
