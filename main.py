@@ -792,7 +792,6 @@ class AdvancedDroneDetectionSystem:
 
             # Fixed wing (elongated)
             if features['aspect_ratio'] > 1.5 and features['solidity'] > 0.5:
-```
                 drone_scores['fixed_wing'] = 0.6
 
             detection['geometry_classification'] = drone_scores
@@ -895,7 +894,7 @@ class AdvancedDroneDetectionSystem:
         except Exception as e:
             return []
 
-    def match_audio_signature(self, self, freqs, magnitude, signature):
+    def match_audio_signature(self, freqs, magnitude, signature):
         """Fast audio signature matching"""
         confidence = 0
 
