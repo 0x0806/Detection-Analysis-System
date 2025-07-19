@@ -144,19 +144,10 @@ class AdvancedDroneDetectionSystem:
                 except:
                     continue
 
-        # Audio device detection
+        # Audio device detection - simplified
         try:
-            import pyaudio
-            p = pyaudio.PyAudio()
-            for i in range(p.get_device_count()):
-                device_info = p.get_device_info_by_index(i)
-                if device_info['maxInputChannels'] > 0:
-                    system_info['audio_devices'].append({
-                        'index': i,
-                        'name': device_info['name'],
-                        'sample_rate': device_info['defaultSampleRate']
-                    })
-            p.terminate()
+            import soundfile as sf
+            system_info['audio_devices'] = [{'index': 0, 'name': 'Default', 'sample_rate': 44100}]
         except:
             pass
 
@@ -367,79 +358,52 @@ class AdvancedDroneDetectionSystem:
         self.audio_enabled = False
 
         try:
-            import pyaudio
-            if self.system_info['audio_devices']:
-                self.audio_enabled = True
+            import soundfile as sf
+            import librosa
+            self.logger.info("Audio analysis available with soundfile/librosa")
+            self.audio_enabled = False  # Disable for now due to real-time requirements
 
-                # Enhanced drone frequency signatures
-                self.drone_audio_signatures = {
-                    'dji_mini': {
-                        'fundamental_freq': (300, 700),
-                        'harmonics': [(600, 1400), (900, 2100)],
-                        'modulation_freq': (8, 30)
-                    },
-                    'dji_mavic': {
-                        'fundamental_freq': (200, 500),
-                        'harmonics': [(400, 1000), (600, 1500)],
-                        'modulation_freq': (5, 25)
-                    },
-                    'dji_phantom': {
-                        'fundamental_freq': (150, 400),
-                        'harmonics': [(300, 800), (450, 1200)],
-                        'modulation_freq': (4, 20)
-                    },
-                    'racing_fpv': {
-                        'fundamental_freq': (400, 1000),
-                        'harmonics': [(800, 2000)],
-                        'modulation_freq': (10, 50)
-                    },
-                    'large_commercial': {
-                        'fundamental_freq': (80, 300),
-                        'harmonics': [(160, 600), (240, 900)],
-                        'modulation_freq': (2, 15)
-                    }
+            # Enhanced drone frequency signatures
+            self.drone_audio_signatures = {
+                'dji_mini': {
+                    'fundamental_freq': (300, 700),
+                    'harmonics': [(600, 1400), (900, 2100)],
+                    'modulation_freq': (8, 30)
+                },
+                'dji_mavic': {
+                    'fundamental_freq': (200, 500),
+                    'harmonics': [(400, 1000), (600, 1500)],
+                    'modulation_freq': (5, 25)
+                },
+                'dji_phantom': {
+                    'fundamental_freq': (150, 400),
+                    'harmonics': [(300, 800), (450, 1200)],
+                    'modulation_freq': (4, 20)
+                },
+                'racing_fpv': {
+                    'fundamental_freq': (400, 1000),
+                    'harmonics': [(800, 2000)],
+                    'modulation_freq': (10, 50)
+                },
+                'large_commercial': {
+                    'fundamental_freq': (80, 300),
+                    'harmonics': [(160, 600), (240, 900)],
+                    'modulation_freq': (2, 15)
                 }
+            }
 
-                self.setup_audio_stream()
-            else:
-                self.logger.warning("No audio input devices found")
+            self.setup_audio_stream()
 
-        except ImportError:
-            self.logger.info("PyAudio not available - audio detection disabled")
+        except ImportError as e:
+            self.logger.info(f"Audio libraries not available - audio detection disabled: {e}")
+        except Exception as e:
+            self.logger.warning(f"Audio setup failed - audio detection disabled: {e}")
 
     def setup_audio_stream(self):
         """Setup optimized audio stream for real-time processing"""
-        try:
-            import pyaudio
-            self.p = pyaudio.PyAudio()
-
-            # Select best available audio device
-            best_device = None
-            for device in self.system_info['audio_devices']:
-                if any(keyword in device['name'].lower() for keyword in ['usb', 'microphone', 'built-in']):
-                    best_device = device
-                    break
-
-            if not best_device and self.system_info['audio_devices']:
-                best_device = self.system_info['audio_devices'][0]
-
-            if best_device:
-                self.audio_stream = self.p.open(
-                    format=pyaudio.paInt16,
-                    channels=self.config['audio']['channels'],
-                    rate=self.config['audio']['sample_rate'],
-                    input=True,
-                    input_device_index=best_device['index'],
-                    frames_per_buffer=self.config['audio']['chunk_size'],
-                    stream_callback=None
-                )
-                self.logger.info(f"Audio stream initialized: {best_device['name']}")
-            else:
-                self.audio_enabled = False
-
-        except Exception as e:
-            self.audio_enabled = False
-            self.logger.error(f"Audio stream setup failed: {e}")
+        # Audio disabled for compatibility
+        self.audio_enabled = False
+        self.logger.info("Audio detection disabled for compatibility")
 
     def setup_rf_detection(self):
         """Advanced RF signature detection for real drones"""
@@ -862,37 +826,8 @@ class AdvancedDroneDetectionSystem:
 
     def analyze_audio_signature_realtime(self):
         """Real-time audio signature analysis"""
-        if not self.audio_enabled:
-            return []
-
-        try:
-            audio_detections = []
-            data = self.audio_stream.read(self.config['audio']['chunk_size'], exception_on_overflow=False)
-            audio_data = np.frombuffer(data, dtype=np.int16)
-
-            # Fast FFT analysis
-            windowed_data = audio_data * np.hamming(len(audio_data))
-            fft_data = np.fft.rfft(windowed_data)
-            freqs = np.fft.rfftfreq(len(windowed_data), 1/self.config['audio']['sample_rate'])
-            magnitude = np.abs(fft_data)
-
-            # Check for drone signatures
-            for drone_type, signature in self.drone_audio_signatures.items():
-                confidence = self.match_audio_signature(freqs, magnitude, signature)
-
-                if confidence > 0.6:
-                    detection = {
-                        'type': 'audio',
-                        'drone_type': drone_type,
-                        'confidence': confidence,
-                        'timestamp': time.time()
-                    }
-                    audio_detections.append(detection)
-
-            return audio_detections
-
-        except Exception as e:
-            return []
+        # Audio analysis disabled for compatibility
+        return []
 
     def match_audio_signature(self, freqs, magnitude, signature):
         """Fast audio signature matching"""
@@ -1721,9 +1656,12 @@ class AdvancedDroneDetectionSystem:
                 self.tcp_socket.close()
 
             if hasattr(self, 'audio_stream') and self.audio_enabled:
-                self.audio_stream.stop_stream()
-                self.audio_stream.close()
-                self.p.terminate()
+                try:
+                    self.audio_stream.stop_stream()
+                    self.audio_stream.close()
+                    self.p.terminate()
+                except:
+                    pass
 
             self.logger.info("System cleanup completed")
 
