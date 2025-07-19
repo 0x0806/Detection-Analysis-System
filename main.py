@@ -1234,141 +1234,907 @@ class AdvancedDroneDetectionSystem:
         def index():
             return render_template_string('''
             <!DOCTYPE html>
-            <html>
+            <html lang="en">
             <head>
-                <title>Advanced Drone Detection System - Live Feed</title>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>DroneWatch Pro - Advanced Detection System</title>
+                <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+                <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
                 <style>
-                    body { 
-                        font-family: 'Arial', sans-serif; 
-                        margin: 0; 
-                        padding: 20px; 
-                        background: linear-gradient(135deg, #1e1e1e, #2d2d2d); 
-                        color: #fff; 
+                    :root {
+                        --primary: #0066ff;
+                        --primary-dark: #0052cc;
+                        --secondary: #00d4aa;
+                        --accent: #ff4081;
+                        --success: #00c851;
+                        --warning: #ffbb33;
+                        --danger: #ff4444;
+                        --info: #33b5e5;
+                        
+                        --bg-primary: #0a0f1c;
+                        --bg-secondary: #1a1f2e;
+                        --bg-tertiary: #242936;
+                        --bg-card: #1e2332;
+                        --bg-glass: rgba(30, 35, 50, 0.7);
+                        
+                        --text-primary: #ffffff;
+                        --text-secondary: #b4bcd0;
+                        --text-muted: #8892b0;
+                        --text-accent: #64ffda;
+                        
+                        --border: #2d3748;
+                        --border-light: #404a5c;
+                        --shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+                        --shadow-hover: 0 15px 40px rgba(0, 0, 0, 0.4);
+                        
+                        --gradient-primary: linear-gradient(135deg, #0066ff, #00d4aa);
+                        --gradient-secondary: linear-gradient(135deg, #ff4081, #ff6b35);
+                        --gradient-success: linear-gradient(135deg, #00c851, #007e33);
+                        --gradient-warning: linear-gradient(135deg, #ffbb33, #ff8800);
+                        --gradient-danger: linear-gradient(135deg, #ff4444, #cc0000);
+                        --gradient-glass: linear-gradient(145deg, rgba(255,255,255,0.1), rgba(255,255,255,0.05));
                     }
-                    .header { 
-                        text-align: center; 
-                        margin-bottom: 20px; 
-                        background: rgba(0,255,0,0.1); 
-                        padding: 20px; 
-                        border-radius: 10px; 
+
+                    * {
+                        margin: 0;
+                        padding: 0;
+                        box-sizing: border-box;
                     }
-                    .video-container { 
-                        text-align: center; 
-                        margin: 20px 0; 
-                        border: 3px solid #00ff00; 
-                        border-radius: 15px; 
-                        padding: 10px;
-                        background: rgba(0,0,0,0.3);
+
+                    body {
+                        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+                        background: var(--bg-primary);
+                        color: var(--text-primary);
+                        min-height: 100vh;
+                        overflow-x: hidden;
+                        line-height: 1.6;
+                        font-weight: 400;
                     }
-                    .stats { 
-                        display: flex; 
-                        justify-content: space-around; 
-                        margin: 20px 0; 
-                        flex-wrap: wrap;
+
+                    /* Modern Glass Morphism */
+                    .glass {
+                        background: var(--bg-glass);
+                        backdrop-filter: blur(20px);
+                        -webkit-backdrop-filter: blur(20px);
+                        border: 1px solid rgba(255, 255, 255, 0.1);
                     }
-                    .stat-box { 
-                        background: linear-gradient(45deg, #333, #444); 
-                        padding: 20px; 
-                        border-radius: 10px; 
-                        margin: 10px;
-                        border: 2px solid #00ff00;
-                        min-width: 150px;
-                        box-shadow: 0 0 20px rgba(0,255,0,0.3);
+
+                    /* Dashboard Layout */
+                    .dashboard {
+                        display: grid;
+                        grid-template-areas: 
+                            "header header"
+                            "sidebar main";
+                        grid-template-columns: 280px 1fr;
+                        grid-template-rows: 70px 1fr;
+                        min-height: 100vh;
                     }
-                    img { 
-                        max-width: 100%; 
+
+                    /* Header */
+                    .header {
+                        grid-area: header;
+                        background: var(--bg-card);
+                        border-bottom: 1px solid var(--border);
+                        display: flex;
+                        align-items: center;
+                        justify-content: space-between;
+                        padding: 0 2rem;
+                        position: sticky;
+                        top: 0;
+                        z-index: 1000;
+                        box-shadow: 0 2px 20px rgba(0, 0, 0, 0.1);
+                    }
+
+                    .logo {
+                        display: flex;
+                        align-items: center;
+                        gap: 0.75rem;
+                    }
+
+                    .logo-icon {
+                        width: 40px;
+                        height: 40px;
+                        background: var(--gradient-primary);
                         border-radius: 10px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        font-size: 18px;
+                        color: white;
+                        box-shadow: 0 5px 15px rgba(0, 102, 255, 0.3);
                     }
-                    .alert { 
-                        background: linear-gradient(45deg, #ff4444, #ff6666); 
-                        padding: 15px; 
-                        margin: 10px 0; 
-                        border-radius: 10px; 
+
+                    .logo-text {
+                        font-size: 1.25rem;
+                        font-weight: 700;
+                        background: var(--gradient-primary);
+                        -webkit-background-clip: text;
+                        -webkit-text-fill-color: transparent;
+                        background-clip: text;
+                    }
+
+                    .header-controls {
+                        display: flex;
+                        align-items: center;
+                        gap: 1rem;
+                    }
+
+                    .status-badge {
+                        display: flex;
+                        align-items: center;
+                        gap: 0.5rem;
+                        padding: 0.5rem 1rem;
+                        background: var(--gradient-success);
+                        border-radius: 50px;
+                        font-size: 0.875rem;
+                        font-weight: 600;
+                        color: white;
+                        box-shadow: 0 3px 10px rgba(0, 200, 81, 0.3);
+                    }
+
+                    .status-dot {
+                        width: 8px;
+                        height: 8px;
+                        background: white;
+                        border-radius: 50%;
                         animation: pulse 2s infinite;
                     }
-                    @keyframes pulse {
-                        0% { opacity: 1; }
-                        50% { opacity: 0.7; }
-                        100% { opacity: 1; }
+
+                    /* Sidebar */
+                    .sidebar {
+                        grid-area: sidebar;
+                        background: var(--bg-secondary);
+                        border-right: 1px solid var(--border);
+                        padding: 1.5rem 0;
+                        overflow-y: auto;
                     }
-                    .developer { color: #00ff00; font-weight: bold; }
+
+                    .nav-group {
+                        margin-bottom: 2rem;
+                        padding: 0 1rem;
+                    }
+
+                    .nav-title {
+                        font-size: 0.75rem;
+                        font-weight: 700;
+                        text-transform: uppercase;
+                        letter-spacing: 0.1em;
+                        color: var(--text-muted);
+                        margin-bottom: 0.75rem;
+                        padding: 0 0.75rem;
+                    }
+
+                    .nav-link {
+                        display: flex;
+                        align-items: center;
+                        padding: 0.75rem;
+                        margin: 0.25rem 0;
+                        color: var(--text-secondary);
+                        text-decoration: none;
+                        border-radius: 10px;
+                        transition: all 0.3s ease;
+                        font-weight: 500;
+                        position: relative;
+                        overflow: hidden;
+                    }
+
+                    .nav-link:hover {
+                        background: rgba(0, 102, 255, 0.1);
+                        color: var(--text-primary);
+                        transform: translateX(5px);
+                    }
+
+                    .nav-link.active {
+                        background: var(--gradient-primary);
+                        color: white;
+                        box-shadow: 0 5px 15px rgba(0, 102, 255, 0.3);
+                    }
+
+                    .nav-link i {
+                        width: 20px;
+                        margin-right: 0.75rem;
+                        font-size: 16px;
+                    }
+
+                    /* Main Content */
+                    .main {
+                        grid-area: main;
+                        padding: 2rem;
+                        overflow-y: auto;
+                        background: var(--bg-primary);
+                    }
+
+                    /* Video Feed */
+                    .video-card {
+                        background: var(--bg-card);
+                        border-radius: 20px;
+                        padding: 1.5rem;
+                        margin-bottom: 2rem;
+                        box-shadow: var(--shadow);
+                        border: 1px solid var(--border);
+                    }
+
+                    .card-header {
+                        display: flex;
+                        align-items: center;
+                        justify-content: between;
+                        margin-bottom: 1.5rem;
+                    }
+
+                    .card-title {
+                        font-size: 1.25rem;
+                        font-weight: 700;
+                        color: var(--text-primary);
+                        display: flex;
+                        align-items: center;
+                        gap: 0.5rem;
+                    }
+
+                    .video-container {
+                        position: relative;
+                        background: #000;
+                        border-radius: 15px;
+                        overflow: hidden;
+                        aspect-ratio: 16/9;
+                        box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.5);
+                    }
+
+                    .video-feed {
+                        width: 100%;
+                        height: 100%;
+                        object-fit: cover;
+                        border-radius: 15px;
+                    }
+
+                    .video-overlay {
+                        position: absolute;
+                        top: 1rem;
+                        left: 1rem;
+                        background: rgba(0, 0, 0, 0.8);
+                        backdrop-filter: blur(10px);
+                        padding: 0.5rem 1rem;
+                        border-radius: 50px;
+                        color: white;
+                        font-size: 0.875rem;
+                        font-weight: 600;
+                        display: flex;
+                        align-items: center;
+                        gap: 0.5rem;
+                        border: 1px solid rgba(255, 255, 255, 0.1);
+                    }
+
+                    .live-dot {
+                        width: 8px;
+                        height: 8px;
+                        background: #ff4444;
+                        border-radius: 50%;
+                        animation: pulse 1.5s infinite;
+                    }
+
+                    /* Stats Grid */
+                    .stats-grid {
+                        display: grid;
+                        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+                        gap: 1.5rem;
+                        margin-bottom: 2rem;
+                    }
+
+                    .stat-card {
+                        background: var(--bg-card);
+                        border-radius: 20px;
+                        padding: 1.5rem;
+                        border: 1px solid var(--border);
+                        transition: all 0.4s ease;
+                        position: relative;
+                        overflow: hidden;
+                    }
+
+                    .stat-card:hover {
+                        transform: translateY(-5px) scale(1.02);
+                        box-shadow: var(--shadow-hover);
+                        border-color: var(--border-light);
+                    }
+
+                    .stat-card::before {
+                        content: '';
+                        position: absolute;
+                        top: 0;
+                        left: 0;
+                        right: 0;
+                        height: 3px;
+                        background: var(--gradient-primary);
+                        opacity: 0;
+                        transition: opacity 0.3s ease;
+                    }
+
+                    .stat-card:hover::before {
+                        opacity: 1;
+                    }
+
+                    .stat-header {
+                        display: flex;
+                        align-items: center;
+                        justify-content: space-between;
+                        margin-bottom: 1rem;
+                    }
+
+                    .stat-icon {
+                        width: 50px;
+                        height: 50px;
+                        border-radius: 15px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        font-size: 22px;
+                        color: white;
+                        box-shadow: 0 5px 20px rgba(0, 0, 0, 0.2);
+                    }
+
+                    .stat-icon.detection {
+                        background: var(--gradient-success);
+                    }
+
+                    .stat-icon.threat {
+                        background: var(--gradient-warning);
+                    }
+
+                    .stat-icon.tracker {
+                        background: var(--gradient-primary);
+                    }
+
+                    .stat-icon.cpu {
+                        background: var(--gradient-secondary);
+                    }
+
+                    .stat-value {
+                        font-size: 2.5rem;
+                        font-weight: 800;
+                        color: var(--text-primary);
+                        margin-bottom: 0.25rem;
+                        line-height: 1;
+                    }
+
+                    .stat-label {
+                        font-size: 0.875rem;
+                        color: var(--text-secondary);
+                        font-weight: 500;
+                    }
+
+                    /* Controls Panel */
+                    .controls-card {
+                        background: var(--bg-card);
+                        border-radius: 20px;
+                        padding: 1.5rem;
+                        border: 1px solid var(--border);
+                        box-shadow: var(--shadow);
+                    }
+
+                    .control-group {
+                        margin-bottom: 1.5rem;
+                    }
+
+                    .control-group:last-child {
+                        margin-bottom: 0;
+                    }
+
+                    .control-label {
+                        font-size: 0.875rem;
+                        font-weight: 600;
+                        color: var(--text-secondary);
+                        margin-bottom: 0.5rem;
+                        display: block;
+                    }
+
+                    .btn {
+                        width: 100%;
+                        padding: 0.875rem 1.5rem;
+                        border: none;
+                        border-radius: 12px;
+                        font-size: 0.875rem;
+                        font-weight: 600;
+                        cursor: pointer;
+                        transition: all 0.3s ease;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        gap: 0.5rem;
+                        text-decoration: none;
+                        position: relative;
+                        overflow: hidden;
+                    }
+
+                    .btn::before {
+                        content: '';
+                        position: absolute;
+                        top: 0;
+                        left: -100%;
+                        width: 100%;
+                        height: 100%;
+                        background: rgba(255, 255, 255, 0.1);
+                        transition: left 0.3s ease;
+                    }
+
+                    .btn:hover::before {
+                        left: 100%;
+                    }
+
+                    .btn-primary {
+                        background: var(--gradient-primary);
+                        color: white;
+                        box-shadow: 0 5px 15px rgba(0, 102, 255, 0.3);
+                    }
+
+                    .btn-primary:hover {
+                        transform: translateY(-2px);
+                        box-shadow: 0 8px 25px rgba(0, 102, 255, 0.4);
+                    }
+
+                    .btn-danger {
+                        background: var(--gradient-danger);
+                        color: white;
+                        box-shadow: 0 5px 15px rgba(255, 68, 68, 0.3);
+                    }
+
+                    .btn-danger:hover {
+                        transform: translateY(-2px);
+                        box-shadow: 0 8px 25px rgba(255, 68, 68, 0.4);
+                    }
+
+                    /* Alerts Floating Panel */
+                    .alerts-panel {
+                        position: fixed;
+                        top: 90px;
+                        right: 20px;
+                        width: 350px;
+                        max-height: calc(100vh - 110px);
+                        overflow-y: auto;
+                        z-index: 1000;
+                        pointer-events: none;
+                    }
+
+                    .alert {
+                        background: var(--bg-glass);
+                        backdrop-filter: blur(20px);
+                        border-radius: 15px;
+                        padding: 1rem;
+                        margin-bottom: 1rem;
+                        border: 1px solid rgba(255, 255, 255, 0.1);
+                        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+                        pointer-events: auto;
+                        animation: slideInRight 0.5s ease;
+                        position: relative;
+                        overflow: hidden;
+                    }
+
+                    .alert::before {
+                        content: '';
+                        position: absolute;
+                        top: 0;
+                        left: 0;
+                        width: 4px;
+                        height: 100%;
+                    }
+
+                    .alert.high::before {
+                        background: var(--warning);
+                    }
+
+                    .alert.critical::before {
+                        background: var(--danger);
+                        animation: pulse 1s infinite;
+                    }
+
+                    .alert-content {
+                        display: flex;
+                        align-items: flex-start;
+                        gap: 0.75rem;
+                    }
+
+                    .alert-icon {
+                        width: 35px;
+                        height: 35px;
+                        border-radius: 10px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        font-size: 16px;
+                        color: white;
+                        flex-shrink: 0;
+                    }
+
+                    .alert-text h4 {
+                        font-weight: 700;
+                        margin-bottom: 0.25rem;
+                        font-size: 0.925rem;
+                    }
+
+                    .alert-text p {
+                        font-size: 0.8rem;
+                        color: var(--text-secondary);
+                        margin-bottom: 0.25rem;
+                    }
+
+                    .alert-time {
+                        font-size: 0.7rem;
+                        color: var(--text-muted);
+                    }
+
+                    /* Responsive Design */
+                    @media (max-width: 1200px) {
+                        .dashboard {
+                            grid-template-areas: 
+                                "header header"
+                                "main main";
+                            grid-template-columns: 1fr;
+                        }
+                        
+                        .sidebar {
+                            display: none;
+                        }
+                        
+                        .alerts-panel {
+                            width: 300px;
+                            right: 15px;
+                        }
+                    }
+
+                    @media (max-width: 768px) {
+                        .main {
+                            padding: 1rem;
+                        }
+                        
+                        .stats-grid {
+                            grid-template-columns: repeat(2, 1fr);
+                            gap: 1rem;
+                        }
+                        
+                        .alerts-panel {
+                            width: calc(100vw - 30px);
+                            right: 15px;
+                        }
+                        
+                        .header {
+                            padding: 0 1rem;
+                        }
+                    }
+
+                    /* Animations */
+                    @keyframes pulse {
+                        0%, 100% { opacity: 1; }
+                        50% { opacity: 0.5; }
+                    }
+
+                    @keyframes slideInRight {
+                        from {
+                            transform: translateX(100%);
+                            opacity: 0;
+                        }
+                        to {
+                            transform: translateX(0);
+                            opacity: 1;
+                        }
+                    }
+
+                    @keyframes fadeIn {
+                        from { opacity: 0; }
+                        to { opacity: 1; }
+                    }
+
+                    /* Scrollbar Styling */
+                    ::-webkit-scrollbar {
+                        width: 8px;
+                    }
+
+                    ::-webkit-scrollbar-track {
+                        background: var(--bg-secondary);
+                    }
+
+                    ::-webkit-scrollbar-thumb {
+                        background: var(--border-light);
+                        border-radius: 4px;
+                    }
+
+                    ::-webkit-scrollbar-thumb:hover {
+                        background: var(--text-muted);
+                    }
+
+                    /* Loading States */
+                    .loading {
+                        position: relative;
+                        overflow: hidden;
+                    }
+
+                    .loading::after {
+                        content: '';
+                        position: absolute;
+                        top: 0;
+                        left: -100%;
+                        width: 100%;
+                        height: 100%;
+                        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+                        animation: shimmer 1.5s infinite;
+                    }
+
+                    @keyframes shimmer {
+                        100% { left: 100%; }
+                    }
                 </style>
             </head>
             <body>
-                <div class="header">
-                    <h1>🚁 Advanced Drone Detection System v5.0 Ultimate</h1>
-                    <p>Real-time multi-modal drone detection and tracking</p>
-                    <p class="developer">Developed by 0x0806</p>
+                <div class="dashboard">
+                    <!-- Header -->
+                    <header class="header">
+                        <div class="logo">
+                            <div class="logo-icon">
+                                <i class="fas fa-drone"></i>
+                            </div>
+                            <div class="logo-text">DroneWatch Pro</div>
+                        </div>
+                        <div class="header-controls">
+                            <div class="status-badge">
+                                <div class="status-dot"></div>
+                                <span>ACTIVE</span>
+                            </div>
+                        </div>
+                    </header>
+
+                    <!-- Sidebar -->
+                    <nav class="sidebar">
+                        <div class="nav-group">
+                            <div class="nav-title">Dashboard</div>
+                            <a href="#" class="nav-link active">
+                                <i class="fas fa-tv"></i>
+                                Live Monitor
+                            </a>
+                            <a href="#" class="nav-link">
+                                <i class="fas fa-chart-area"></i>
+                                Analytics
+                            </a>
+                            <a href="#" class="nav-link">
+                                <i class="fas fa-history"></i>
+                                Detection Log
+                            </a>
+                        </div>
+                        <div class="nav-group">
+                            <div class="nav-title">System</div>
+                            <a href="#" class="nav-link">
+                                <i class="fas fa-cogs"></i>
+                                Settings
+                            </a>
+                            <a href="#" class="nav-link">
+                                <i class="fas fa-video"></i>
+                                Camera Config
+                            </a>
+                            <a href="#" class="nav-link">
+                                <i class="fas fa-shield-alt"></i>
+                                Security
+                            </a>
+                        </div>
+                        <div class="nav-group">
+                            <div class="nav-title">Tools</div>
+                            <a href="#" class="nav-link">
+                                <i class="fas fa-download"></i>
+                                Export Data
+                            </a>
+                            <a href="#" class="nav-link">
+                                <i class="fas fa-info-circle"></i>
+                                System Info
+                            </a>
+                        </div>
+                    </nav>
+
+                    <!-- Main Content -->
+                    <main class="main">
+                        <!-- Video Feed -->
+                        <div class="video-card">
+                            <div class="card-header">
+                                <h2 class="card-title">
+                                    <i class="fas fa-video"></i>
+                                    Live Video Feed
+                                </h2>
+                            </div>
+                            <div class="video-container">
+                                <img src="/video_feed" alt="Live Detection Feed" class="video-feed">
+                                <div class="video-overlay">
+                                    <div class="live-dot"></div>
+                                    <span>LIVE</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Stats Grid -->
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-header">
+                                    <div class="stat-icon detection">
+                                        <i class="fas fa-crosshairs"></i>
+                                    </div>
+                                </div>
+                                <div class="stat-value" id="detections">0</div>
+                                <div class="stat-label">Active Detections</div>
+                            </div>
+
+                            <div class="stat-card">
+                                <div class="stat-header">
+                                    <div class="stat-icon threat">
+                                        <i class="fas fa-exclamation-triangle"></i>
+                                    </div>
+                                </div>
+                                <div class="stat-value" id="threat">LOW</div>
+                                <div class="stat-label">Threat Level</div>
+                            </div>
+
+                            <div class="stat-card">
+                                <div class="stat-header">
+                                    <div class="stat-icon tracker">
+                                        <i class="fas fa-radar-alt"></i>
+                                    </div>
+                                </div>
+                                <div class="stat-value" id="trackers">0</div>
+                                <div class="stat-label">Active Trackers</div>
+                            </div>
+
+                            <div class="stat-card">
+                                <div class="stat-header">
+                                    <div class="stat-icon cpu">
+                                        <i class="fas fa-microchip"></i>
+                                    </div>
+                                </div>
+                                <div class="stat-value" id="cpu">0%</div>
+                                <div class="stat-label">CPU Usage</div>
+                            </div>
+                        </div>
+
+                        <!-- Controls -->
+                        <div class="controls-card">
+                            <div class="card-header">
+                                <h2 class="card-title">
+                                    <i class="fas fa-sliders-h"></i>
+                                    System Controls
+                                </h2>
+                            </div>
+                            <div class="control-group">
+                                <label class="control-label">Detection Control</label>
+                                <button class="btn btn-primary" onclick="toggleDetection()">
+                                    <i class="fas fa-play"></i>
+                                    Toggle Detection
+                                </button>
+                            </div>
+                            <div class="control-group">
+                                <label class="control-label">System Calibration</label>
+                                <button class="btn btn-primary" onclick="calibrateSystem()">
+                                    <i class="fas fa-adjust"></i>
+                                    Calibrate System
+                                </button>
+                            </div>
+                            <div class="control-group">
+                                <label class="control-label">Emergency Actions</label>
+                                <button class="btn btn-danger" onclick="emergencyStop()">
+                                    <i class="fas fa-stop"></i>
+                                    Emergency Stop
+                                </button>
+                            </div>
+                        </div>
+                    </main>
                 </div>
-                <div class="video-container">
-                    <img src="/video_feed" alt="Live Video Feed">
+
+                <!-- Alerts Panel -->
+                <div class="alerts-panel" id="alerts-panel">
+                    <!-- Dynamic alerts will appear here -->
                 </div>
-                <div class="stats">
-                    <div class="stat-box">
-                        <h3>🎯 Status</h3>
-                        <p id="status">ACTIVE</p>
-                    </div>
-                    <div class="stat-box">
-                        <h3>📊 Live Detections</h3>
-                        <p id="detections">0</p>
-                    </div>
-                    <div class="stat-box">
-                        <h3>⚠️ Threat Level</h3>
-                        <p id="threat">LOW</p>
-                    </div>
-                    <div class="stat-box">
-                        <h3>🎯 Active Trackers</h3>
-                        <p id="trackers">0</p>
-                    </div>
-                    <div class="stat-box">
-                        <h3>📡 System Load</h3>
-                        <p id="cpu">0%</p>
-                    </div>
-                    <div class="stat-box">
-                        <h3>🔊 Audio Status</h3>
-                        <p id="audio">Disabled</p>
-                    </div>
-                </div>
-                <div id="alerts"></div>
 
                 <script>
-                    let lastAlertTime = 0;
+                    let alertCount = 0;
+                    let lastUpdateTime = 0;
 
+                    // Update system stats
                     function updateStats() {
                         fetch('/stats')
                         .then(response => response.json())
                         .then(data => {
-                            document.getElementById('detections').innerText = data.detections || 0;
-                            document.getElementById('threat').innerText = data.threat_level || 'LOW';
-                            document.getElementById('trackers').innerText = data.active_trackers || 0;
-                            document.getElementById('cpu').innerText = (data.cpu_usage || 0).toFixed(1) + '%';
-                            document.getElementById('audio').innerText = data.audio_enabled ? 'Active' : 'Disabled';
+                            // Update stat displays
+                            document.getElementById('detections').textContent = data.detections || 0;
+                            document.getElementById('threat').textContent = data.threat_level || 'LOW';
+                            document.getElementById('trackers').textContent = data.active_trackers || 0;
+                            document.getElementById('cpu').textContent = (data.cpu_usage || 0).toFixed(1) + '%';
 
-                            // Show alerts for high threats
+                            // Update threat level colors
+                            const threatElement = document.getElementById('threat');
+                            const threatCard = threatElement.closest('.stat-card');
+                            
+                            if (data.threat_level === 'HIGH') {
+                                threatElement.style.color = 'var(--warning)';
+                                threatCard.style.borderColor = 'var(--warning)';
+                            } else if (data.threat_level === 'CRITICAL') {
+                                threatElement.style.color = 'var(--danger)';
+                                threatCard.style.borderColor = 'var(--danger)';
+                            } else {
+                                threatElement.style.color = 'var(--text-primary)';
+                                threatCard.style.borderColor = 'var(--border)';
+                            }
+
+                            // Show alerts for threats
                             if (data.threat_level && ['HIGH', 'CRITICAL'].includes(data.threat_level)) {
                                 showAlert(data.threat_level, data.detections);
                             }
+
+                            lastUpdateTime = Date.now();
                         })
-                        .catch(error => console.log('Stats update failed:', error));
+                        .catch(error => {
+                            console.warn('Stats update failed:', error);
+                        });
                     }
 
+                    // Show threat alerts
                     function showAlert(level, count) {
                         const now = Date.now();
-                        if (now - lastAlertTime < 5000) return; // Throttle alerts
+                        if (now - lastUpdateTime < 2000) return; // Throttle alerts
 
-                        lastAlertTime = now;
-                        const alertDiv = document.getElementById('alerts');
+                        alertCount++;
+                        const alertsPanel = document.getElementById('alerts-panel');
+                        
                         const alert = document.createElement('div');
-                        alert.className = 'alert';
-                        alert.innerHTML = `🚨 ${level} THREAT DETECTED - ${count} Drone(s) Active!`;
-                        alertDiv.appendChild(alert);
+                        alert.className = `alert ${level.toLowerCase()}`;
+                        
+                        const iconColor = level === 'CRITICAL' ? 'var(--danger)' : 'var(--warning)';
+                        
+                        alert.innerHTML = `
+                            <div class="alert-content">
+                                <div class="alert-icon" style="background: ${iconColor}">
+                                    <i class="fas fa-exclamation-triangle"></i>
+                                </div>
+                                <div class="alert-text">
+                                    <h4>${level} THREAT DETECTED</h4>
+                                    <p>${count} drone(s) detected in surveillance area</p>
+                                    <div class="alert-time">Alert #${alertCount} - ${new Date().toLocaleTimeString()}</div>
+                                </div>
+                            </div>
+                        `;
 
-                        setTimeout(() => alert.remove(), 10000); // Remove after 10s
+                        alertsPanel.insertBefore(alert, alertsPanel.firstChild);
+
+                        // Auto-remove after 12 seconds
+                        setTimeout(() => {
+                            if (alert.parentNode) {
+                                alert.style.opacity = '0';
+                                alert.style.transform = 'translateX(100%)';
+                                setTimeout(() => alert.remove(), 300);
+                            }
+                        }, 12000);
+
+                        // Keep only 4 alerts max
+                        while (alertsPanel.children.length > 4) {
+                            alertsPanel.removeChild(alertsPanel.lastChild);
+                        }
                     }
 
-                    // Update every second for real-time feel
+                    // Control functions
+                    function toggleDetection() {
+                        console.log('Detection toggle requested');
+                        // Add actual API call here
+                    }
+
+                    function calibrateSystem() {
+                        console.log('System calibration requested');
+                        // Add actual API call here
+                    }
+
+                    function emergencyStop() {
+                        if (confirm('⚠️ Are you sure you want to perform an emergency stop?')) {
+                            console.log('Emergency stop activated');
+                            // Add actual API call here
+                        }
+                    }
+
+                    // Initialize
+                    updateStats();
                     setInterval(updateStats, 1000);
-                    updateStats(); // Initial load
+
+                    // Demo alert (remove in production)
+                    setTimeout(() => {
+                        showAlert('HIGH', 1);
+                    }, 3000);
                 </script>
             </body>
             </html>
